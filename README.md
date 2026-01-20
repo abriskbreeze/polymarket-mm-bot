@@ -2,7 +2,7 @@
 
 A sophisticated market-making trading bot for Polymarket prediction markets, built incrementally with test-driven development.
 
-[![Tests](https://img.shields.io/badge/tests-6%2F6%20passing-brightgreen)](tests/test_phase1.py)
+[![Tests](https://img.shields.io/badge/tests-17%2F17%20passing-brightgreen)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -70,10 +70,14 @@ polymarket-mm-bot/
 │   ├── __init__.py
 │   ├── config.py          # Configuration management
 │   ├── client.py          # Polymarket CLOB API client wrapper
-│   └── utils.py           # Logging and utility functions
+│   ├── utils.py           # Logging and utility functions
+│   ├── models.py          # Data models (Market, OrderBook, etc.)
+│   ├── markets.py         # Market discovery (Gamma API)
+│   └── pricing.py         # Pricing and order books (CLOB API)
 ├── tests/
 │   ├── __init__.py
-│   └── test_phase1.py     # Phase 1 verification tests
+│   ├── test_phase1.py     # Phase 1 verification tests
+│   └── test_phase2.py     # Phase 2 verification tests
 ├── thoughts/
 │   └── shared/
 │       └── handoffs/      # Session handoff documents
@@ -81,7 +85,8 @@ polymarket-mm-bot/
 ├── .gitignore
 ├── README.md
 ├── requirements.txt
-└── phase1-environment-connectivity.md  # Phase 1 specification
+├── phase1-environment-connectivity.md  # Phase 1 specification
+└── phase2-market-discovery-v2.md       # Phase 2 specification
 
 ```
 
@@ -91,19 +96,21 @@ This project is built incrementally across 10 phases. Each phase must pass all t
 
 ### ✅ Completed Phases
 
-- **[x] Phase 1: Environment & Connectivity** _(Current)_
+- **[x] Phase 1: Environment & Connectivity**
   - Project structure setup
   - Configuration management with environment variables
   - Polymarket CLOB API client wrapper (read-only mode)
   - Logging utilities
   - Test suite: 6/6 passing ✓
 
-### 🔜 Upcoming Phases
+- **[x] Phase 2: Market Discovery & Data Fetching** _(Current)_
+  - Data models (Market, OrderBook, PriceLevel, Outcome, Event)
+  - Market discovery from Gamma API
+  - Orderbook fetching from CLOB API
+  - Price data retrieval (midpoint, spread, best bid/ask)
+  - Test suite: 11/11 passing ✓
 
-- **[ ] Phase 2: Market Discovery & Data Fetching**
-  - Market listing and filtering
-  - Orderbook fetching and parsing
-  - Price data retrieval
+### 🔜 Upcoming Phases
 
 - **[ ] Phase 3: WebSocket Real-Time Data**
   - WebSocket connection management
@@ -164,11 +171,31 @@ Phase 1 Tests: 6/6 passing ✓
 ├── test_server_time          ✓
 ├── test_client_singleton     ✓
 └── test_logging_setup        ✓
+
+Phase 2 Tests: 11/11 passing ✓
+├── TestModels
+│   ├── test_price_level_creation        ✓
+│   ├── test_order_book_properties       ✓
+│   └── test_market_model                ✓
+├── TestMarketDiscovery
+│   ├── test_fetch_active_markets        ✓
+│   ├── test_market_has_token_ids        ✓
+│   └── test_fetch_events                ✓
+├── TestPricing
+│   ├── test_get_midpoint                ✓
+│   ├── test_get_price                   ✓
+│   ├── test_get_order_book              ✓
+│   └── test_get_spread                  ✓
+└── TestIntegration
+    └── test_full_market_data_flow       ✓
+
+Total: 17/17 tests passing ✓
 ```
 
 ## 📚 Documentation
 
 - [Phase 1 Specification](phase1-environment-connectivity.md) - Complete Phase 1 requirements
+- [Phase 2 Specification](phase2-market-discovery-v2.md) - Complete Phase 2 requirements
 - [API Documentation](https://docs.polymarket.com/) - Polymarket API reference
 - [Session Handoffs](thoughts/shared/handoffs/) - Development session notes
 
@@ -208,4 +235,4 @@ MIT License - See LICENSE file for details
 
 ---
 
-**Current Status**: Phase 1 Complete ✓ | Ready for Phase 2 Development
+**Current Status**: Phase 2 Complete ✓ | Ready for Phase 3 Development
