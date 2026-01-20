@@ -1,0 +1,40 @@
+# Environment
+.env
+.env.local
+
+# Python
+*.pyc
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Claude Code cache
+.claude/
+.tldr/
+.tldrignore
+
+# Handoffs (optional - include if you want to track session history)
+# thoughts/
