@@ -2,7 +2,7 @@
 
 A sophisticated market-making trading bot for Polymarket prediction markets, built incrementally with test-driven development.
 
-[![Tests](https://img.shields.io/badge/tests-17%2F17%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-29%2F29%20passing-brightgreen)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -68,16 +68,18 @@ pytest tests/test_phase1.py -v
 polymarket-mm-bot/
 ├── src/
 │   ├── __init__.py
-│   ├── config.py          # Configuration management
-│   ├── client.py          # Polymarket CLOB API client wrapper
-│   ├── utils.py           # Logging and utility functions
-│   ├── models.py          # Data models (Market, OrderBook, etc.)
-│   ├── markets.py         # Market discovery (Gamma API)
-│   └── pricing.py         # Pricing and order books (CLOB API)
+│   ├── config.py              # Configuration management
+│   ├── client.py              # Polymarket CLOB API client wrapper
+│   ├── utils.py               # Logging and utility functions
+│   ├── models.py              # Data models (Market, OrderBook, etc.)
+│   ├── markets.py             # Market discovery (Gamma API)
+│   ├── pricing.py             # Pricing and order books (CLOB API)
+│   └── websocket_client.py    # WebSocket real-time data (Phase 3)
 ├── tests/
 │   ├── __init__.py
 │   ├── test_phase1.py     # Phase 1 verification tests
-│   └── test_phase2.py     # Phase 2 verification tests
+│   ├── test_phase2.py     # Phase 2 verification tests
+│   └── test_phase3.py     # Phase 3 verification tests
 ├── thoughts/
 │   └── shared/
 │       └── handoffs/      # Session handoff documents
@@ -103,19 +105,22 @@ This project is built incrementally across 10 phases. Each phase must pass all t
   - Logging utilities
   - Test suite: 6/6 passing ✓
 
-- **[x] Phase 2: Market Discovery & Data Fetching** _(Current)_
+- **[x] Phase 2: Market Discovery & Data Fetching**
   - Data models (Market, OrderBook, PriceLevel, Outcome, Event)
   - Market discovery from Gamma API
   - Orderbook fetching from CLOB API
   - Price data retrieval (midpoint, spread, best bid/ask)
   - Test suite: 11/11 passing ✓
 
-### 🔜 Upcoming Phases
-
-- **[ ] Phase 3: WebSocket Real-Time Data**
-  - WebSocket connection management
+- **[x] Phase 3: WebSocket Real-Time Data** _(Current)_
+  - WebSocket connection management with auto-reconnect
   - Real-time orderbook updates
-  - Event stream processing
+  - Price change and trade notifications
+  - Local order book maintenance
+  - Callback architecture for event handling
+  - Test suite: 12/12 passing ✓
+
+### 🔜 Upcoming Phases
 
 - **[ ] Phase 4: Authentication & Wallet Setup**
   - Private key management
@@ -189,13 +194,32 @@ Phase 2 Tests: 11/11 passing ✓
 └── TestIntegration
     └── test_full_market_data_flow       ✓
 
-Total: 17/17 tests passing ✓
+Phase 3 Tests: 12/12 passing ✓
+├── TestWebSocketClient
+│   ├── test_import_websocket_client     ✓
+│   ├── test_client_instantiation        ✓
+│   ├── test_connect_disconnect          ✓
+│   ├── test_subscribe_to_market         ✓
+│   ├── test_receive_market_data         ✓
+│   ├── test_order_book_maintenance      ✓
+│   ├── test_callbacks_are_called        ✓
+│   └── test_multiple_subscriptions      ✓
+├── TestConnectionState
+│   └── test_state_enum_values           ✓
+├── TestMarketData
+│   ├── test_market_data_creation        ✓
+│   └── test_stale_data_detection        ✓
+└── TestIntegration
+    └── test_full_websocket_flow         ✓
+
+Total: 29/29 tests passing ✓
 ```
 
 ## 📚 Documentation
 
 - [Phase 1 Specification](phase1-environment-connectivity.md) - Complete Phase 1 requirements
 - [Phase 2 Specification](phase2-market-discovery-v2.md) - Complete Phase 2 requirements
+- [Phase 3 Specification](phase3-websocket-realtime.md) - Complete Phase 3 requirements
 - [API Documentation](https://docs.polymarket.com/) - Polymarket API reference
 - [Session Handoffs](thoughts/shared/handoffs/) - Development session notes
 
@@ -235,4 +259,4 @@ MIT License - See LICENSE file for details
 
 ---
 
-**Current Status**: Phase 2 Complete ✓ | Ready for Phase 3 Development
+**Current Status**: Phase 3 Complete ✓ | Ready for Phase 4 Development

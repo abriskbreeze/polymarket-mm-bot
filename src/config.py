@@ -20,6 +20,20 @@ PRIVATE_KEY = os.getenv("PRIVATE_KEY")
 FUNDER_ADDRESS = os.getenv("FUNDER_ADDRESS")
 
 
+# WebSocket Configuration
+WS_MARKET_URL = os.getenv(
+    "WS_MARKET_URL",
+    "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+)
+
+# Reconnection settings
+WS_RECONNECT_ATTEMPTS = int(os.getenv("WS_RECONNECT_ATTEMPTS", "10"))
+WS_RECONNECT_BASE_DELAY = float(os.getenv("WS_RECONNECT_BASE_DELAY", "1.0"))
+WS_RECONNECT_MAX_DELAY = float(os.getenv("WS_RECONNECT_MAX_DELAY", "60.0"))
+WS_HEARTBEAT_INTERVAL = float(os.getenv("WS_HEARTBEAT_INTERVAL", "30.0"))
+WS_STALE_DATA_THRESHOLD = float(os.getenv("WS_STALE_DATA_THRESHOLD", "60.0"))
+
+
 def has_trading_credentials():
     """
     Check if trading credentials are configured
