@@ -1,28 +1,96 @@
 """
-Polymarket CLOB API client wrapper
+CLOB Client wrapper with authentication support.
+
+Provides both read-only and authenticated client access.
 """
 
+from typing import Optional
 from py_clob_client.client import ClobClient
-from src.config import CLOB_API_URL
+from py_clob_client.clob_types import ApiCreds
 
-# Singleton instance
-_client_instance = None
+from src.config import (
+    CLOB_API_URL,
+    CHAIN_ID,
+    POLY_PRIVATE_KEY,
+    POLY_API_KEY,
+    POLY_API_SECRET,
+    POLY_PASSPHRASE,
+    has_credentials,
+)
+from src.utils import setup_logging
+
+logger = setup_logging()
+
+# Module-level clients (singletons)
+_read_client: Optional[ClobClient] = None
+_auth_client: Optional[ClobClient] = None
 
 
-def get_client():
+def get_client() -> ClobClient:
     """
-    Get or create a Polymarket CLOB client instance
+    Get read-only CLOB client.
 
-    Uses singleton pattern to reuse the same client connection.
-    Creates client in read-only mode (no authentication).
-
-    Returns:
-        ClobClient: Configured client instance
+    Use this for operations that don't require authentication:
+    - Fetching order books
+    - Getting market info
+    - Price queries
     """
-    global _client_instance
+    global _read_client
 
-    if _client_instance is None:
-        # Initialize client in read-only mode (no private key needed)
-        _client_instance = ClobClient(host=CLOB_API_URL)
+    if _read_client is None:
+        _read_client = ClobClient(
+            host=CLOB_API_URL,
+            chain_id=CHAIN_ID
+        )
+        logger.debug("Created read-only CLOB client")
 
-    return _client_instance
+    return _read_client
+
+
+def get_auth_client() -> ClobClient:
+    """
+    Get authenticated CLOB client.
+
+    Use this for operations that require authentication:
+    - Placing orders
+    - Canceling orders
+    - Checking balances
+    - Managing positions
+
+    Raises:
+        ValueError: If credentials are not configured
+    """
+    global _auth_client
+
+    if _auth_client is None:
+        if not has_credentials():
+            raise ValueError(
+                "Authentication credentials not configured. "
+                "Set POLY_PRIVATE_KEY, POLY_API_KEY, POLY_API_SECRET, "
+                "and POLY_PASSPHRASE in your .env file."
+            )
+
+        # Create client with private key
+        _auth_client = ClobClient(
+            host=CLOB_API_URL,
+            chain_id=CHAIN_ID,
+            key=POLY_PRIVATE_KEY
+        )
+
+        # Set API credentials
+        _auth_client.set_api_creds(ApiCreds(
+            api_key=POLY_API_KEY,
+            api_secret=POLY_API_SECRET,
+            api_passphrase=POLY_PASSPHRASE
+        ))
+
+        logger.info("Created authenticated CLOB client")
+
+    return _auth_client
+
+
+def reset_clients():
+    """Reset client singletons. Useful for testing."""
+    global _read_client, _auth_client
+    _read_client = None
+    _auth_client = None

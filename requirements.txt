@@ -3,4 +3,7 @@ python-dotenv
 websockets
 pandas
 pytest
+pytest-asyncio
+pytest-timeout
+certifi
 requests

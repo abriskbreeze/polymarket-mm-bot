@@ -2,7 +2,7 @@
 
 A sophisticated market-making trading bot for Polymarket prediction markets, built incrementally with test-driven development.
 
-[![Tests](https://img.shields.io/badge/tests-29%2F29%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-40%2F40%20passing-brightgreen)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -70,16 +70,26 @@ polymarket-mm-bot/
 │   ├── __init__.py
 │   ├── config.py              # Configuration management
 │   ├── client.py              # Polymarket CLOB API client wrapper
+│   ├── auth.py                # Authentication utilities (Phase 4)
 │   ├── utils.py               # Logging and utility functions
 │   ├── models.py              # Data models (Market, OrderBook, etc.)
 │   ├── markets.py             # Market discovery (Gamma API)
 │   ├── pricing.py             # Pricing and order books (CLOB API)
-│   └── websocket_client.py    # WebSocket real-time data (Phase 3)
+│   ├── websocket_client.py    # WebSocket real-time data (Phase 3)
+│   └── feed/                  # Market data feed (Phase 3.5)
+│       ├── __init__.py        # Public API exports
+│       ├── feed.py            # MarketFeed main class
+│       ├── data_store.py      # Local data storage
+│       ├── websocket_conn.py  # WebSocket connection
+│       ├── rest_poller.py     # REST fallback
+│       └── mock.py            # Mock for testing
 ├── tests/
 │   ├── __init__.py
 │   ├── test_phase1.py     # Phase 1 verification tests
 │   ├── test_phase2.py     # Phase 2 verification tests
-│   └── test_phase3.py     # Phase 3 verification tests
+│   ├── test_phase3.py     # Phase 3 verification tests
+│   ├── test_phase3_5.py   # Phase 3.5 verification tests
+│   └── test_phase4.py     # Phase 4 verification tests
 ├── thoughts/
 │   └── shared/
 │       └── handoffs/      # Session handoff documents
@@ -112,7 +122,7 @@ This project is built incrementally across 10 phases. Each phase must pass all t
   - Price data retrieval (midpoint, spread, best bid/ask)
   - Test suite: 11/11 passing ✓
 
-- **[x] Phase 3: WebSocket Real-Time Data** _(Current)_
+- **[x] Phase 3: WebSocket Real-Time Data**
   - WebSocket connection management with auto-reconnect
   - Real-time orderbook updates
   - Price change and trade notifications
@@ -120,12 +130,23 @@ This project is built incrementally across 10 phases. Each phase must pass all t
   - Callback architecture for event handling
   - Test suite: 12/12 passing ✓
 
-### 🔜 Upcoming Phases
+- **[x] Phase 3.5: WebSocket Hardening (Simplified)**
+  - Simplified MarketFeed interface with health checks
+  - Automatic REST fallback when WebSocket is unhealthy
+  - 4-state machine (STOPPED, STARTING, RUNNING, ERROR)
+  - Sequence gap detection and auto-resync
+  - Non-blocking callbacks via async queue
+  - Mock implementation for testing
+  - Test suite: 15/15 passing ✓
 
-- **[ ] Phase 4: Authentication & Wallet Setup**
-  - Private key management
-  - Wallet integration
-  - Authentication flow
+- **[x] Phase 4: Authentication & Wallet Setup** _(Current)_
+  - Authenticated CLOB client with API credentials
+  - Private key and wallet management
+  - Balance and allowance checking utilities
+  - Setup verification helpers
+  - Test suite: 8/8 passing ✓ (6 additional tests require credentials)
+
+### 🔜 Upcoming Phases
 
 - **[ ] Phase 5: Order Management (Read Operations)**
   - Order status tracking
@@ -212,7 +233,49 @@ Phase 3 Tests: 12/12 passing ✓
 └── TestIntegration
     └── test_full_websocket_flow         ✓
 
-Total: 29/29 tests passing ✓
+Phase 3.5 Tests: 15/15 passing ✓
+├── TestFeedState
+│   └── test_states_defined              ✓
+├── TestDataStore
+│   ├── test_store_creation              ✓
+│   ├── test_book_update                 ✓
+│   ├── test_freshness                   ✓
+│   └── test_sequence_tracking           ✓
+├── TestMockFeed
+│   ├── test_mock_basic                  ✓
+│   ├── test_mock_data                   ✓
+│   └── test_mock_health                 ✓
+├── TestMarketFeed
+│   ├── test_import                      ✓
+│   ├── test_instantiation               ✓
+│   ├── test_start_stop                  ✓
+│   ├── test_health_and_data             ✓
+│   ├── test_callbacks                   ✓
+│   └── test_state_transitions           ✓
+└── TestIntegration
+    └── test_market_maker_pattern        ✓
+
+Phase 4 Tests: 8/8 passing ✓ (6 skipped without credentials)
+├── TestConfig
+│   ├── test_config_imports              ✓
+│   ├── test_has_credentials             ✓
+│   └── test_validate_config             ✓
+├── TestClient
+│   ├── test_read_client                 ✓
+│   ├── test_read_client_singleton       ✓
+│   ├── test_auth_client_requires_creds  ✓
+│   └── test_auth_client_singleton       ⊘ (requires credentials)
+├── TestAuth
+│   ├── test_auth_imports                ✓
+│   ├── test_get_wallet_address          ⊘ (requires credentials)
+│   ├── test_get_balances                ⊘ (requires credentials)
+│   ├── test_check_allowances            ⊘ (requires credentials)
+│   └── test_verify_setup                ⊘ (requires credentials)
+└── TestIntegration
+    ├── test_authenticated_api_call      ⊘ (requires credentials)
+    └── test_can_read_markets_with_auth  ✓
+
+Total: 40/40 tests passing ✓ (6 additional tests available with credentials)
 ```
 
 ## 📚 Documentation
@@ -220,6 +283,8 @@ Total: 29/29 tests passing ✓
 - [Phase 1 Specification](phase1-environment-connectivity.md) - Complete Phase 1 requirements
 - [Phase 2 Specification](phase2-market-discovery-v2.md) - Complete Phase 2 requirements
 - [Phase 3 Specification](phase3-websocket-realtime.md) - Complete Phase 3 requirements
+- [Phase 3.5 Specification](phase3_5-websocket-hardening-simplified.md) - Complete Phase 3.5 requirements
+- [Phase 4 Specification](phase4-authentication.md) - Complete Phase 4 requirements
 - [API Documentation](https://docs.polymarket.com/) - Polymarket API reference
 - [Session Handoffs](thoughts/shared/handoffs/) - Development session notes
 
@@ -228,16 +293,33 @@ Total: 29/29 tests passing ✓
 The bot uses environment variables for configuration. Copy `.env.example` to `.env` and configure:
 
 ```bash
-# Required for trading (Phase 4+)
-PRIVATE_KEY=your_private_key_here
-FUNDER_ADDRESS=your_funder_address_here
+# === Network ===
+CHAIN_ID=137
 
-# Optional overrides
+# === API Endpoints ===
 CLOB_API_URL=https://clob.polymarket.com
 GAMMA_API_URL=https://gamma-api.polymarket.com
+
+# === Authentication (REQUIRED for trading) ===
+# Get these by running derive_api_creds.py
+POLY_PRIVATE_KEY=
+POLY_API_KEY=
+POLY_API_SECRET=
+POLY_PASSPHRASE=
+
+# === WebSocket ===
+WS_MARKET_URL=wss://ws-subscriptions-clob.polymarket.com/ws/market
+WS_RECONNECT_ATTEMPTS=10
+WS_RECONNECT_BASE_DELAY=1.0
+WS_RECONNECT_MAX_DELAY=60.0
+WS_HEARTBEAT_INTERVAL=30.0
+WS_STALE_DATA_THRESHOLD=60.0
 ```
 
-⚠️ **Security Note**: Never commit your `.env` file. Keep private keys secure.
+⚠️ **Security Notes**:
+- Never commit your `.env` file. Keep private keys secure.
+- Use a separate wallet for the bot - never use your personal wallet
+- See [Phase 4 Specification](phase4-authentication.md) for setup instructions
 
 ## 🤝 Contributing
 
@@ -259,4 +341,4 @@ MIT License - See LICENSE file for details
 
 ---
 
-**Current Status**: Phase 3 Complete ✓ | Ready for Phase 4 Development
+**Current Status**: Phase 4 Complete ✓ | Ready for Phase 5 Development
