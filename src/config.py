@@ -5,6 +5,7 @@ Loads settings from environment variables.
 """
 
 import os
+from decimal import Decimal
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -37,6 +38,19 @@ WS_STALE_DATA_THRESHOLD = float(os.getenv("WS_STALE_DATA_THRESHOLD", "60.0"))
 # === Contract Addresses (Polygon) ===
 USDC_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
 
+# === Trading ===
+DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
+MAX_POSITION_PER_MARKET = Decimal(os.getenv("MAX_POSITION_PER_MARKET", "100"))
+MAX_ORDER_SIZE = Decimal(os.getenv("MAX_ORDER_SIZE", "50"))
+MIN_ORDER_SIZE = Decimal(os.getenv("MIN_ORDER_SIZE", "5"))
+
+# === Market Making ===
+MM_SPREAD = Decimal(os.getenv("MM_SPREAD", "0.04"))        # 4 cents each side
+MM_SIZE = Decimal(os.getenv("MM_SIZE", "10"))              # Order size
+MM_REQUOTE_THRESHOLD = Decimal(os.getenv("MM_REQUOTE_THRESHOLD", "0.02"))  # Requote if mid moves 2c
+MM_POSITION_LIMIT = Decimal(os.getenv("MM_POSITION_LIMIT", "50"))  # Max position before skipping side
+MM_LOOP_INTERVAL = float(os.getenv("MM_LOOP_INTERVAL", "1.0"))     # Seconds between loops
+
 
 def has_credentials() -> bool:
     """Check if all required credentials are configured."""
@@ -46,6 +60,11 @@ def has_credentials() -> bool:
         POLY_API_SECRET,
         POLY_PASSPHRASE
     ])
+
+
+def get_mode_string() -> str:
+    """Get human-readable mode string."""
+    return "DRY RUN (paper trading)" if DRY_RUN else "LIVE"
 
 
 def validate_config():

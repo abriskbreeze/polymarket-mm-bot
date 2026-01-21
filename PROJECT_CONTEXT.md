@@ -79,7 +79,7 @@ Building a market-making bot for Polymarket prediction markets. The bot will:
 - Simple reconnection logic
 - **12 tests passing**
 
-### Phase 3.5: WebSocket Hardening (Simplified) ⏳ CURRENT
+### Phase 3.5: WebSocket Hardening (Simplified) ✅ COMPLETED
 - Simple 4-state machine: STOPPED → STARTING → RUNNING → ERROR
 - Single `MarketFeed` class with clean API
 - Internal: async queue, sequence tracking, REST fallback (hidden)
@@ -87,7 +87,17 @@ Building a market-making bot for Polymarket prediction markets. The bot will:
 - Mock feed for offline testing
 - **15 focused tests**
 
-### Phase 4: Authentication & Wallet Setup (Next)
+### Phase 4: Authentication & Wallet Setup ✅ COMPLETED
+- Credential loading from `.env`
+- `get_auth_client()` for authenticated operations
+- `verify_setup()` to check wallet is ready
+- **14 tests**
+
+### Phase 5: Order Management (Read) ⏳ CURRENT
+- Order/Trade data models
+- `get_orders()`, `get_open_orders()`, `get_trades()`
+- `get_order_summary()` for quick status
+- **12 tests**
 - Wallet creation (separate from personal wallet)
 - Fund with MATIC (gas) and USDC.e (trading)
 - Secure credential management
@@ -365,7 +375,9 @@ All phase specs are stored in `/mnt/user-data/outputs/`:
 | `phase3-websocket-realtime.md` | Phase 3 original spec (superseded) |
 | `architecture-review-pre-phase4.md` | Issues identified |
 | `phase3_5-websocket-hardening.md` | Phase 3.5 original (over-engineered) |
-| `phase3_5-websocket-hardening-simplified.md` | Phase 3.5 simplified (USE THIS) |
+| `phase3_5-websocket-hardening-simplified.md` | Phase 3.5 simplified |
+| `phase4-authentication.md` | Phase 4 - Authentication setup |
+| `phase5-order-management-read.md` | Phase 5 - Order read operations |
 | `PROJECT_CONTEXT.md` | This file - project overview |
 
 ---
@@ -434,5 +446,5 @@ requests>=2.28.0
 
 ---
 
-*Last Updated: Phase 3.5 simplified design*
-*Total Tests: 6 + 11 + 12 + 15 = 44 tests across all phases*
+*Last Updated: Phase 5 in progress*
+*Total Tests: 6 + 11 + 12 + 15 + 14 + 12 = 70 tests across all phases*

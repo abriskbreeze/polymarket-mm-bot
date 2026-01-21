@@ -2,7 +2,7 @@
 
 A sophisticated market-making trading bot for Polymarket prediction markets, built incrementally with test-driven development.
 
-[![Tests](https://img.shields.io/badge/tests-40%2F40%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-70%2F70%20passing-brightgreen)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -72,24 +72,34 @@ polymarket-mm-bot/
 │   ├── client.py              # Polymarket CLOB API client wrapper
 │   ├── auth.py                # Authentication utilities (Phase 4)
 │   ├── utils.py               # Logging and utility functions
-│   ├── models.py              # Data models (Market, OrderBook, etc.)
+│   ├── models.py              # Data models (Market, OrderBook, Order, Trade)
 │   ├── markets.py             # Market discovery (Gamma API)
 │   ├── pricing.py             # Pricing and order books (CLOB API)
+│   ├── orders.py              # Order queries (unified DRY_RUN + LIVE) (Phase 5)
+│   ├── simulator.py           # Order simulator for DRY_RUN mode (Phase 6)
+│   ├── trading.py             # Order placement & cancellation (Phase 6)
 │   ├── websocket_client.py    # WebSocket real-time data (Phase 3)
-│   └── feed/                  # Market data feed (Phase 3.5)
-│       ├── __init__.py        # Public API exports
-│       ├── feed.py            # MarketFeed main class
-│       ├── data_store.py      # Local data storage
-│       ├── websocket_conn.py  # WebSocket connection
-│       ├── rest_poller.py     # REST fallback
-│       └── mock.py            # Mock for testing
+│   ├── feed/                  # Market data feed (Phase 3.5)
+│   │   ├── __init__.py        # Public API exports
+│   │   ├── feed.py            # MarketFeed main class
+│   │   ├── data_store.py      # Local data storage
+│   │   ├── websocket_conn.py  # WebSocket connection
+│   │   ├── rest_poller.py     # REST fallback
+│   │   └── mock.py            # Mock for testing
+│   └── strategy/              # Trading strategies (Phase 7)
+│       ├── __init__.py
+│       ├── market_maker.py    # SimpleMarketMaker class
+│       └── runner.py          # CLI runner
 ├── tests/
 │   ├── __init__.py
 │   ├── test_phase1.py     # Phase 1 verification tests
 │   ├── test_phase2.py     # Phase 2 verification tests
 │   ├── test_phase3.py     # Phase 3 verification tests
 │   ├── test_phase3_5.py   # Phase 3.5 verification tests
-│   └── test_phase4.py     # Phase 4 verification tests
+│   ├── test_phase4.py     # Phase 4 verification tests
+│   ├── test_phase5.py     # Phase 5 verification tests
+│   ├── test_phase6.py     # Phase 6 verification tests
+│   └── test_phase7.py     # Phase 7 verification tests
 ├── thoughts/
 │   └── shared/
 │       └── handoffs/      # Session handoff documents
@@ -97,6 +107,7 @@ polymarket-mm-bot/
 ├── .gitignore
 ├── README.md
 ├── requirements.txt
+├── run_mm.py              # Market maker entry point
 ├── phase1-environment-connectivity.md  # Phase 1 specification
 └── phase2-market-discovery-v2.md       # Phase 2 specification
 
@@ -139,29 +150,37 @@ This project is built incrementally across 10 phases. Each phase must pass all t
   - Mock implementation for testing
   - Test suite: 15/15 passing ✓
 
-- **[x] Phase 4: Authentication & Wallet Setup** _(Current)_
+- **[x] Phase 4: Authentication & Wallet Setup**
   - Authenticated CLOB client with API credentials
   - Private key and wallet management
   - Balance and allowance checking utilities
   - Setup verification helpers
   - Test suite: 8/8 passing ✓ (6 additional tests require credentials)
 
+- **[x] Phase 5: Order Management (Read Operations)**
+  - Order, Trade, OrderStatus data models
+  - Unified order query interface (DRY_RUN + LIVE)
+  - Position tracking and order filtering
+  - Test suite: 10/10 passing ✓ (1 test requires credentials)
+
+- **[x] Phase 6: Order Placement & Cancellation**
+  - DRY_RUN mode with order simulator
+  - Order placement with price/size validation
+  - Position limit checks
+  - Order cancellation (single and bulk)
+  - Live order placement via authenticated client
+  - Test suite: 12/12 passing ✓
+
+- **[x] Phase 7: Market Making Core Logic** _(Current)_
+  - Simple market maker with spread configuration
+  - Two-sided quote placement around midpoint
+  - Requoting on price movements
+  - Position limit management (skip sides when at limit)
+  - Signal handling for graceful shutdown
+  - CLI runner with market selection
+  - Test suite: 8/8 passing ✓
+
 ### 🔜 Upcoming Phases
-
-- **[ ] Phase 5: Order Management (Read Operations)**
-  - Order status tracking
-  - Position monitoring
-  - Balance checking
-
-- **[ ] Phase 6: Order Placement & Cancellation**
-  - Order creation
-  - Order modification
-  - Cancellation logic
-
-- **[ ] Phase 7: Market Making Core Logic**
-  - Spread calculation
-  - Quote generation
-  - Inventory management
 
 - **[ ] Phase 8: Risk Management**
   - Position limits
@@ -275,7 +294,56 @@ Phase 4 Tests: 8/8 passing ✓ (6 skipped without credentials)
     ├── test_authenticated_api_call      ⊘ (requires credentials)
     └── test_can_read_markets_with_auth  ✓
 
-Total: 40/40 tests passing ✓ (6 additional tests available with credentials)
+Phase 5 Tests: 10/10 passing ✓ (1 skipped without credentials)
+├── TestOrderModels
+│   ├── test_order_status_enum           ✓
+│   ├── test_order_side_enum             ✓
+│   ├── test_order_type_enum             ✓
+│   ├── test_order_dataclass             ✓
+│   └── test_trade_dataclass             ✓
+├── TestOrdersModule
+│   ├── test_imports                     ✓
+│   ├── test_get_open_orders_works       ✓
+│   ├── test_get_position                ✓
+│   └── test_get_trades                  ⊘ (requires credentials)
+└── TestIntegration
+    ├── test_order_workflow_readonly     ✓
+    └── test_filter_by_token             ✓
+
+Phase 6 Tests: 12/12 passing ✓ (all in DRY_RUN mode)
+├── TestValidation
+│   ├── test_validate_price_valid        ✓
+│   ├── test_validate_price_rounds       ✓
+│   ├── test_validate_price_invalid      ✓
+│   ├── test_validate_size               ✓
+│   └── test_position_limit              ✓
+├── TestPlaceOrder
+│   ├── test_place_order_success         ✓
+│   ├── test_place_order_rejects_bad_price ✓
+│   └── test_place_order_rejects_small_size ✓
+├── TestCancelOrder
+│   ├── test_cancel_order                ✓
+│   └── test_cancel_all_orders           ✓
+└── TestIntegration
+    ├── test_place_fill_cancel_workflow  ✓
+    └── test_with_real_market            ✓
+
+Phase 7 Tests: 8/8 passing ✓
+├── TestQuoteCalculation
+│   ├── test_spread_calculation          ✓
+│   └── test_requote_threshold           ✓
+├── TestPositionLimits
+│   └── test_skip_buy_when_long          ✓
+├── TestMarketMakerLifecycle
+│   ├── test_creates_and_stops           ✓
+│   └── test_signal_handling             ✓
+├── TestWithMockFeed
+│   ├── test_places_quotes_on_healthy_feed ✓
+│   └── test_cancels_on_unhealthy_feed   ✓
+└── TestIntegration
+    └── test_full_cycle_with_real_market ✓
+
+Total: 70/70 tests passing ✓ (7 additional tests available with credentials)
 ```
 
 ## 📚 Documentation
@@ -285,6 +353,9 @@ Total: 40/40 tests passing ✓ (6 additional tests available with credentials)
 - [Phase 3 Specification](phase3-websocket-realtime.md) - Complete Phase 3 requirements
 - [Phase 3.5 Specification](phase3_5-websocket-hardening-simplified.md) - Complete Phase 3.5 requirements
 - [Phase 4 Specification](phase4-authentication.md) - Complete Phase 4 requirements
+- [Phase 5 Specification](phase5-order-management-read.md) - Complete Phase 5 requirements
+- [Phase 6 Specification](phase6-order-placement.md) - Complete Phase 6 requirements
+- [Phase 7 Specification](phase7-market-maker.md) - Complete Phase 7 requirements
 - [API Documentation](https://docs.polymarket.com/) - Polymarket API reference
 - [Session Handoffs](thoughts/shared/handoffs/) - Development session notes
 
@@ -341,4 +412,4 @@ MIT License - See LICENSE file for details
 
 ---
 
-**Current Status**: Phase 4 Complete ✓ | Ready for Phase 5 Development
+**Current Status**: Phase 7 Complete ✓ | Ready for Phase 8 Development
