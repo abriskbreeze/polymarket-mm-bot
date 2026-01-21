@@ -2,7 +2,7 @@
 
 A sophisticated market-making trading bot for Polymarket prediction markets, built incrementally with test-driven development.
 
-[![Tests](https://img.shields.io/badge/tests-70%2F70%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-86%2F86%20passing-brightgreen)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -86,10 +86,13 @@ polymarket-mm-bot/
 │   │   ├── websocket_conn.py  # WebSocket connection
 │   │   ├── rest_poller.py     # REST fallback
 │   │   └── mock.py            # Mock for testing
-│   └── strategy/              # Trading strategies (Phase 7)
-│       ├── __init__.py
-│       ├── market_maker.py    # SimpleMarketMaker class
-│       └── runner.py          # CLI runner
+│   ├── strategy/              # Trading strategies (Phase 7)
+│   │   ├── __init__.py
+│   │   ├── market_maker.py    # SimpleMarketMaker class
+│   │   └── runner.py          # CLI runner
+│   └── risk/                  # Risk management (Phase 8)
+│       ├── __init__.py        # Public API exports
+│       └── manager.py         # RiskManager class
 ├── tests/
 │   ├── __init__.py
 │   ├── test_phase1.py     # Phase 1 verification tests
@@ -99,7 +102,8 @@ polymarket-mm-bot/
 │   ├── test_phase4.py     # Phase 4 verification tests
 │   ├── test_phase5.py     # Phase 5 verification tests
 │   ├── test_phase6.py     # Phase 6 verification tests
-│   └── test_phase7.py     # Phase 7 verification tests
+│   ├── test_phase7.py     # Phase 7 verification tests
+│   └── test_phase8.py     # Phase 8 verification tests
 ├── thoughts/
 │   └── shared/
 │       └── handoffs/      # Session handoff documents
@@ -171,7 +175,7 @@ This project is built incrementally across 10 phases. Each phase must pass all t
   - Live order placement via authenticated client
   - Test suite: 12/12 passing ✓
 
-- **[x] Phase 7: Market Making Core Logic** _(Current)_
+- **[x] Phase 7: Market Making Core Logic**
   - Simple market maker with spread configuration
   - Two-sided quote placement around midpoint
   - Requoting on price movements
@@ -180,14 +184,23 @@ This project is built incrementally across 10 phases. Each phase must pass all t
   - CLI runner with market selection
   - Test suite: 8/8 passing ✓
 
+- **[x] Phase 8: Risk Management** _(Current)_
+  - RiskManager with daily loss limits and kill switch
+  - Data gathering mode (log-only) vs enforcement mode
+  - Error rate limiting with cooldown
+  - Position and exposure tracking
+  - Risk event logging for analysis
+  - Periodic status reporting
+  - Test suite: 16/16 passing ✓
+
 ### 🔜 Upcoming Phases
 
-- **[ ] Phase 8: Risk Management**
-  - Position limits
-  - Exposure tracking
-  - Safety mechanisms
+- **[ ] Phase 9: Live Testing**
+  - Real money trading with small sizes
+  - Performance validation
+  - Risk control verification
 
-- **[ ] Phase 9: Arbitrage Detection**
+- **[ ] Phase 10: Arbitrage Detection**
   - Cross-market monitoring
   - Opportunity identification
   - Execution logic
@@ -343,7 +356,34 @@ Phase 7 Tests: 8/8 passing ✓
 └── TestIntegration
     └── test_full_cycle_with_real_market ✓
 
-Total: 70/70 tests passing ✓ (7 additional tests available with credentials)
+Phase 8 Tests: 16/16 passing ✓
+├── TestRiskStatus
+│   ├── test_ok_by_default               ✓
+│   ├── test_kill_switch                 ✓
+│   └── test_reset_kill_switch           ✓
+├── TestEnforceMode
+│   ├── test_enforce_true_stops          ✓
+│   ├── test_enforce_false_continues     ✓
+│   └── test_kill_switch_always_enforced ✓
+├── TestRiskEventLogging
+│   ├── test_events_logged               ✓
+│   └── test_event_details_captured      ✓
+├── TestDailyLoss
+│   ├── test_loss_limit_stop             ✓
+│   ├── test_loss_warning                ✓
+│   └── test_reset_daily_pnl             ✓
+├── TestErrorRate
+│   └── test_error_cooldown              ✓
+├── TestPositionLimits
+│   └── test_position_warning            ✓
+├── TestGetStatus
+│   └── test_get_status                  ✓
+├── TestGlobalInstance
+│   └── test_global_instance             ✓
+└── TestIntegration
+    └── test_data_gathering_workflow     ✓
+
+Total: 86/86 tests passing ✓ (7 additional tests available with credentials)
 ```
 
 ## 📚 Documentation
@@ -356,6 +396,7 @@ Total: 70/70 tests passing ✓ (7 additional tests available with credentials)
 - [Phase 5 Specification](phase5-order-management-read.md) - Complete Phase 5 requirements
 - [Phase 6 Specification](phase6-order-placement.md) - Complete Phase 6 requirements
 - [Phase 7 Specification](phase7-market-maker.md) - Complete Phase 7 requirements
+- [Phase 8 Specification](phase8-risk-controls.md) - Complete Phase 8 requirements
 - [API Documentation](https://docs.polymarket.com/) - Polymarket API reference
 - [Session Handoffs](thoughts/shared/handoffs/) - Development session notes
 
@@ -412,4 +453,4 @@ MIT License - See LICENSE file for details
 
 ---
 
-**Current Status**: Phase 7 Complete ✓ | Ready for Phase 8 Development
+**Current Status**: Phase 8 Complete ✓ | Ready for Phase 9 Live Testing

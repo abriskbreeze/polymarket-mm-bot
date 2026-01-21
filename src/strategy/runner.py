@@ -14,6 +14,19 @@ from src.utils import setup_logging
 logger = setup_logging()
 
 
+async def log_status_periodically(mm: SimpleMarketMaker, interval: float = 30.0):
+    """Log status every N seconds."""
+    while mm._running:
+        await asyncio.sleep(interval)
+        if mm._running:
+            status = mm.risk.get_status()
+            logger.info(
+                f"Status: Mode={status['mode']} | "
+                f"PnL={status['daily_pnl']:+.2f} ({status['pnl_percent_of_limit']:.0f}% of limit) | "
+                f"Events={status['risk_events_logged']}"
+            )
+
+
 def select_market():
     """Let user select a market to trade."""
     print("\nFetching active markets...")
@@ -82,8 +95,20 @@ def main():
     # Run
     mm = SimpleMarketMaker(token_id)
 
+    async def run_with_status():
+        """Run market maker with periodic status updates."""
+        status_task = asyncio.create_task(log_status_periodically(mm))
+        try:
+            await mm.run()
+        finally:
+            status_task.cancel()
+            try:
+                await status_task
+            except asyncio.CancelledError:
+                pass
+
     try:
-        asyncio.run(mm.run())
+        asyncio.run(run_with_status())
     except KeyboardInterrupt:
         print("\nInterrupted.")
 

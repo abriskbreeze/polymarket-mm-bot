@@ -51,6 +51,17 @@ MM_REQUOTE_THRESHOLD = Decimal(os.getenv("MM_REQUOTE_THRESHOLD", "0.02"))  # Req
 MM_POSITION_LIMIT = Decimal(os.getenv("MM_POSITION_LIMIT", "50"))  # Max position before skipping side
 MM_LOOP_INTERVAL = float(os.getenv("MM_LOOP_INTERVAL", "1.0"))     # Seconds between loops
 
+# === Risk Management ===
+RISK_MAX_DAILY_LOSS = Decimal(os.getenv("RISK_MAX_DAILY_LOSS", "50"))  # Stop if lose $50
+RISK_MAX_POSITION = Decimal(os.getenv("RISK_MAX_POSITION", "100"))     # Max position per token
+RISK_MAX_TOTAL_EXPOSURE = Decimal(os.getenv("RISK_MAX_TOTAL_EXPOSURE", "500"))  # Total across all
+RISK_ERROR_COOLDOWN = int(os.getenv("RISK_ERROR_COOLDOWN", "60"))      # Seconds to pause after errors
+RISK_MAX_ERRORS_PER_MINUTE = int(os.getenv("RISK_MAX_ERRORS_PER_MINUTE", "5"))  # Error rate limit
+
+# Enforce risk limits? Default: OFF in dry-run (gather data), ON in live (protect money)
+_default_enforce = "false" if DRY_RUN else "true"
+RISK_ENFORCE = os.getenv("RISK_ENFORCE", _default_enforce).lower() == "true"
+
 
 def has_credentials() -> bool:
     """Check if all required credentials are configured."""

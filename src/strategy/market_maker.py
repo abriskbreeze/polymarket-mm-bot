@@ -24,6 +24,7 @@ from src.models import Order, OrderSide
 from src.trading import place_order, cancel_order, cancel_all_orders, OrderError
 from src.orders import get_open_orders, get_position
 from src.feed import MarketFeed
+from src.risk import RiskManager, RiskStatus, get_risk_manager
 from src.utils import setup_logging
 
 logger = setup_logging()
@@ -69,6 +70,7 @@ class SimpleMarketMaker:
         self.last_mid: Optional[Decimal] = None
         self._running = False
         self._shutdown_event = asyncio.Event()
+        self.risk = get_risk_manager()
 
     async def run(self):
         """
@@ -142,6 +144,21 @@ class SimpleMarketMaker:
 
     async def _loop_iteration(self):
         """Single iteration of the market making loop."""
+        # === RISK CHECK ===
+        check = self.risk.check([self.token_id])
+
+        if check.status == RiskStatus.STOP:
+            # In enforce mode: stop trading
+            # In data-gather mode: this won't happen (check returns OK)
+            logger.error(f"Risk stop: {check.reason}")
+            await self._cancel_all_quotes()
+            self.stop()
+            return
+
+        if check.status == RiskStatus.WARN:
+            logger.warning(f"Risk warning: {check.reason}")
+            # Could reduce size here in future
+
         # Check feed health
         if not self.feed or not self.feed.is_healthy:
             logger.warning("Feed unhealthy - cancelling quotes")
@@ -242,6 +259,15 @@ class SimpleMarketMaker:
     async def _shutdown(self):
         """Clean shutdown."""
         logger.info("Shutting down market maker...")
+
+        # Log risk event summary
+        summary = self.risk.get_risk_event_summary()
+        if summary["total_events"] > 0:
+            logger.info(f"Risk Event Summary:")
+            logger.info(f"  Total events: {summary['total_events']}")
+            logger.info(f"  STOP events: {summary['stop_events']} (enforced: {summary['enforced_events']})")
+            logger.info(f"  WARN events: {summary['warn_events']}")
+            logger.info(f"  Final P&L: {self.risk.daily_pnl}")
 
         # Cancel all orders
         logger.info("Cancelling all orders...")
