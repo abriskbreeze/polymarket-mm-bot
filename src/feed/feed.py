@@ -324,6 +324,21 @@ class MarketFeed:
 
     async def _process_dict_message(self, data: dict):
         """Process a single dict message."""
+        # Handle Polymarket WS format: {"market":"...", "price_changes":[...]}
+        price_changes = data.get('price_changes')
+        if price_changes and isinstance(price_changes, list):
+            for change in price_changes:
+                if isinstance(change, dict):
+                    token_id = change.get('asset_id')
+                    price = change.get('price')
+                    if token_id and price:
+                        self._data_store.update_price(token_id, float(price))
+                        if self._data_source == "websocket":
+                            self._data_store.record_ws_message()
+                        await self._invoke_callback(self.on_price_change, change)
+            return
+
+        # Handle legacy/alternative format with event_type
         event_type = data.get('event_type')
         token_id = data.get('asset_id')
 
@@ -343,12 +358,16 @@ class MarketFeed:
                 data.get('asks', []),
                 data.get('timestamp')
             )
+            if self._data_source == "websocket":
+                self._data_store.record_ws_message()
             await self._invoke_callback(self.on_book_update, data)
 
         elif event_type == 'price_change':
             price = data.get('price')
             if price:
                 self._data_store.update_price(token_id, float(price))
+                if self._data_source == "websocket":
+                    self._data_store.record_ws_message()
             await self._invoke_callback(self.on_price_change, data)
 
         elif event_type == 'last_trade_price':
@@ -362,6 +381,8 @@ class MarketFeed:
                     float(size) if size else None,
                     side
                 )
+                if self._data_source == "websocket":
+                    self._data_store.record_ws_message()
             await self._invoke_callback(self.on_trade, data)
 
     async def _invoke_callback(self, callback: Optional[Callable], data: Any):
@@ -388,8 +409,9 @@ class MarketFeed:
                 ws_connected = self._ws.is_connected
                 data_fresh = self._data_store.all_fresh()
 
-                # Check if WS is healthy
-                if ws_connected and data_fresh:
+                # Check if WS is actually sending data (not just connected)
+                ws_sending_data = self._data_store.seconds_since_ws_message() < self._stale_threshold
+                if ws_connected and ws_sending_data:
                     if self._ws_healthy_since == 0:
                         self._ws_healthy_since = time.time()
 

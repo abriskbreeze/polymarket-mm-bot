@@ -25,6 +25,7 @@ from src.trading import place_order, cancel_order, cancel_all_orders, OrderError
 from src.orders import get_open_orders, get_position
 from src.feed import MarketFeed
 from src.risk import RiskManager, RiskStatus, get_risk_manager
+from src.simulator import get_simulator
 from src.utils import setup_logging
 
 logger = setup_logging()
@@ -177,6 +178,17 @@ class SimpleMarketMaker:
             return
 
         mid = Decimal(str(mid))
+
+        # Check for simulated fills in DRY_RUN mode
+        if DRY_RUN:
+            bid = self.feed.get_best_bid(self.token_id)
+            ask = self.feed.get_best_ask(self.token_id)
+            if bid is not None and ask is not None:
+                filled = get_simulator().check_fills(
+                    self.token_id, Decimal(str(bid)), Decimal(str(ask))
+                )
+                if filled:
+                    logger.info(f"[SIM] {filled} order(s) filled")
 
         # Check if we need to requote
         if self._should_requote(mid):

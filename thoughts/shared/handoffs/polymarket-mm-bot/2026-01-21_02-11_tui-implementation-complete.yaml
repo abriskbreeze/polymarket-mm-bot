@@ -1,0 +1,83 @@
+---
+session: polymarket-mm-bot
+date: 2026-01-21
+status: complete
+outcome: SUCCEEDED
+---
+
+goal: Implemented complete TUI for market maker bot with live dashboard and real-time updates
+now: Push changes to GitHub and test TUI in production with live market data
+test: source venv/bin/activate && pytest tests/ -v --timeout=60
+
+done_this_session:
+  - task: Implemented complete TUI package with state management, rendering, and collection
+    files: [src/tui/state.py, src/tui/collector.py, src/tui/renderer.py, src/tui/runner.py, src/tui/__init__.py]
+  - task: Created TUI entry point with interactive market selection
+    files: [run_tui.py]
+  - task: Added comprehensive TUI test suite (15 tests)
+    files: [tests/test_tui.py, tests/test_phase3_5.py]
+  - task: Fixed critical WebSocket message parsing bug (list vs dict messages)
+    files: [src/feed/feed.py]
+  - task: Fixed TUI runtime errors (kill switch attribute, await on non-async)
+    files: [src/tui/runner.py, src/tui/collector.py]
+  - task: Fixed Ctrl+C signal handling for clean shutdown
+    files: [src/tui/runner.py]
+  - task: Added rich dependency for terminal rendering
+    files: [requirements.txt]
+  - task: Added get_state_for_tui() method to market maker
+    files: [src/strategy/market_maker.py]
+
+blockers: []
+
+questions: []
+
+decisions:
+  - tui_library: Chose rich over alternatives (blessed, curses) for modern terminal rendering with live updates and color support
+  - state_architecture: Implemented centralized BotState dataclass with StateCollector pattern for clean separation between data collection and rendering
+  - signal_handling: Used loop.add_signal_handler() instead of signal.signal() for proper asyncio integration with rich.Live screen mode
+  - websocket_fix: Added isinstance() check to handle both list and dict messages from Polymarket server, preventing AttributeError crashes
+  - attribute_access: Changed from private attributes (_kill_switch_active) to public properties (is_killed) for proper encapsulation
+
+findings:
+  - websocket_list_messages: Polymarket server sometimes sends messages as lists instead of dicts, causing 'list' object has no attribute 'get' errors
+  - signal_handler_timing: Signal handlers must be registered on the running event loop (loop.add_signal_handler) not in __init__ for asyncio compatibility
+  - rich_live_blocking: rich.Live screen mode blocks standard signal handlers, requires asyncio event loop integration
+  - risk_manager_api: RiskManager uses is_killed property (not _kill_switch_active), max_daily_loss/max_position (not _daily_loss_limit/_position_limit)
+  - market_maker_stop: SimpleMarketMaker.stop() is synchronous (not async), sets flags only
+
+worked:
+  - Using dataclasses for all state objects (BotState, MarketState, OrderState, etc.) - clean, type-safe, easy to test
+  - StateCollector pattern for gathering data from all components into single snapshot - separation of concerns
+  - Rich library for TUI rendering - excellent live updates, color coding, layouts, progress bars
+  - Adding test for list message handling (test_list_message_handling) - caught the bug immediately
+  - Using properties instead of direct private attribute access - proper encapsulation
+  - loop.add_signal_handler() for Ctrl+C handling - works perfectly with rich.Live
+
+failed:
+  - Initial signal.signal() approach for Ctrl+C - didn't integrate with asyncio or rich.Live
+  - Using private attributes (_kill_switch_active, _daily_loss_limit) - broke when implementation changed
+  - Awaiting synchronous stop() method - TypeError on cleanup
+
+next:
+  - Push all changes to GitHub remote repository
+  - Test TUI with live market data in production
+  - Monitor WebSocket stability with list message fix
+  - Consider adding keyboard controls (pause/resume, manual kill switch toggle)
+  - Add performance metrics panel (latency, quote update rate, fill rate)
+
+files:
+  created:
+    - src/tui/__init__.py
+    - src/tui/state.py
+    - src/tui/collector.py
+    - src/tui/renderer.py
+    - src/tui/runner.py
+    - run_tui.py
+    - tests/test_tui.py
+    - test_ctrl_c.py
+    - thoughts/shared/handoffs/polymarket-mm-bot/2026-01-21_02-11_tui-implementation-complete.yaml
+  modified:
+    - requirements.txt
+    - src/strategy/market_maker.py
+    - src/feed/feed.py
+    - tests/test_phase3_5.py

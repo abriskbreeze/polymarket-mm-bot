@@ -42,6 +42,7 @@ class DataStore:
         self._sequence: Dict[str, int] = {}  # For gap detection
         self._gap_count: Dict[str, int] = {}
         self._last_any_message: float = 0.0
+        self._last_ws_message: float = 0.0
 
     # === Data Access ===
 
@@ -200,6 +201,16 @@ class DataStore:
         if self._last_any_message == 0:
             return float('inf')
         return time.time() - self._last_any_message
+
+    def record_ws_message(self):
+        """Record WebSocket message received."""
+        self._last_ws_message = time.time()
+
+    def seconds_since_ws_message(self) -> float:
+        """Seconds since last WebSocket message."""
+        if self._last_ws_message == 0:
+            return float('inf')
+        return time.time() - self._last_ws_message
 
     def clear(self):
         """Clear all data."""
