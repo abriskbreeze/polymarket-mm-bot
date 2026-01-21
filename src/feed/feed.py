@@ -81,11 +81,11 @@ class MarketFeed:
         self._health_task: Optional[asyncio.Task] = None
         self._ws_healthy_since: float = 0
 
-        # User callbacks
-        self._on_price_change: Optional[Callable] = None
-        self._on_book_update: Optional[Callable] = None
-        self._on_trade: Optional[Callable] = None
-        self._on_state_change: Optional[Callable[[FeedState], None]] = None
+        # User callbacks - simple attributes instead of properties
+        self.on_price_change: Optional[Callable] = None
+        self.on_book_update: Optional[Callable] = None
+        self.on_trade: Optional[Callable] = None
+        self.on_state_change: Optional[Callable[[FeedState], None]] = None
 
         # Wire up internal callbacks
         self._ws.on_message = self._handle_ws_message
@@ -199,6 +199,10 @@ class MarketFeed:
         if self._state != FeedState.RUNNING:
             return False
 
+        # Check if we've received ANY message recently (heartbeat)
+        if self._data_store.seconds_since_any_message() > 45:
+            return False
+
         if not self._data_store.all_fresh():
             return False
 
@@ -237,38 +241,6 @@ class MarketFeed:
 
     # === Callbacks ===
 
-    @property
-    def on_price_change(self):
-        return self._on_price_change
-
-    @on_price_change.setter
-    def on_price_change(self, callback: Optional[Callable]):
-        self._on_price_change = callback
-
-    @property
-    def on_book_update(self):
-        return self._on_book_update
-
-    @on_book_update.setter
-    def on_book_update(self, callback: Optional[Callable]):
-        self._on_book_update = callback
-
-    @property
-    def on_trade(self):
-        return self._on_trade
-
-    @on_trade.setter
-    def on_trade(self, callback: Optional[Callable]):
-        self._on_trade = callback
-
-    @property
-    def on_state_change(self):
-        return self._on_state_change
-
-    @on_state_change.setter
-    def on_state_change(self, callback: Optional[Callable[[FeedState], None]]):
-        self._on_state_change = callback
-
     # === Internal Methods ===
 
     def _set_state(self, new_state: FeedState):
@@ -278,8 +250,8 @@ class MarketFeed:
 
         if old_state != new_state:
             logger.info(f"State: {old_state.name} -> {new_state.name}")
-            if self._on_state_change:
-                self._on_state_change(new_state)
+            if self.on_state_change:
+                self.on_state_change(new_state)
 
     def _handle_ws_message(self, raw_message: str):
         """Handle raw WebSocket message."""
@@ -332,6 +304,8 @@ class MarketFeed:
 
     async def _process_message(self, raw_message: str):
         """Process a single message."""
+        self._data_store.record_message_received()
+
         try:
             data = json.loads(raw_message)
         except json.JSONDecodeError:
@@ -356,13 +330,13 @@ class MarketFeed:
                 data.get('asks', []),
                 data.get('timestamp')
             )
-            await self._invoke_callback(self._on_book_update, data)
+            await self._invoke_callback(self.on_book_update, data)
 
         elif event_type == 'price_change':
             price = data.get('price')
             if price:
                 self._data_store.update_price(token_id, float(price))
-            await self._invoke_callback(self._on_price_change, data)
+            await self._invoke_callback(self.on_price_change, data)
 
         elif event_type == 'last_trade_price':
             price = data.get('price')
@@ -375,7 +349,7 @@ class MarketFeed:
                     float(size) if size else None,
                     side
                 )
-            await self._invoke_callback(self._on_trade, data)
+            await self._invoke_callback(self.on_trade, data)
 
     async def _invoke_callback(self, callback: Optional[Callable], data: Any):
         """Invoke callback (supports sync and async)."""

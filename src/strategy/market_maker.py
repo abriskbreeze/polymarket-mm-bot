@@ -30,13 +30,6 @@ from src.utils import setup_logging
 logger = setup_logging()
 
 
-@dataclass
-class Quote:
-    """Represents a single quote (bid or ask)."""
-    order: Optional[Order] = None
-    target_price: Optional[Decimal] = None
-
-
 class SimpleMarketMaker:
     """
     Simple market maker for a single token.
@@ -65,8 +58,8 @@ class SimpleMarketMaker:
         self.loop_interval = loop_interval
 
         self.feed: Optional[MarketFeed] = None
-        self.bid = Quote()
-        self.ask = Quote()
+        self.bid_order: Optional[Order] = None
+        self.ask_order: Optional[Order] = None
         self.last_mid: Optional[Decimal] = None
         self._running = False
         self._shutdown_event = asyncio.Event()
@@ -181,7 +174,7 @@ class SimpleMarketMaker:
     def _should_requote(self, mid: Decimal) -> bool:
         """Check if quotes need updating."""
         # Always quote if we have no quotes
-        if self.bid.order is None and self.ask.order is None:
+        if self.bid_order is None and self.ask_order is None:
             return True
 
         # Requote if mid moved beyond threshold
@@ -219,15 +212,13 @@ class SimpleMarketMaker:
         # Place new quotes
         # Skip buy if too long
         if position < self.position_limit:
-            self.bid.order = self._place_quote(OrderSide.BUY, bid_price)
-            self.bid.target_price = bid_price
+            self.bid_order = self._place_quote(OrderSide.BUY, bid_price)
         else:
             logger.info(f"Position {position} at limit - skipping BUY")
 
         # Skip sell if too short
         if position > -self.position_limit:
-            self.ask.order = self._place_quote(OrderSide.SELL, ask_price)
-            self.ask.target_price = ask_price
+            self.ask_order = self._place_quote(OrderSide.SELL, ask_price)
         else:
             logger.info(f"Position {position} at limit - skipping SELL")
 
@@ -248,13 +239,13 @@ class SimpleMarketMaker:
 
     async def _cancel_all_quotes(self):
         """Cancel all our quotes."""
-        if self.bid.order and self.bid.order.is_live:
-            cancel_order(self.bid.order.id)
-        if self.ask.order and self.ask.order.is_live:
-            cancel_order(self.ask.order.id)
+        if self.bid_order and self.bid_order.is_live:
+            cancel_order(self.bid_order.id)
+        if self.ask_order and self.ask_order.is_live:
+            cancel_order(self.ask_order.id)
 
-        self.bid.order = None
-        self.ask.order = None
+        self.bid_order = None
+        self.ask_order = None
 
     async def _shutdown(self):
         """Clean shutdown."""

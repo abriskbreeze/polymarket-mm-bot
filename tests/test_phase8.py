@@ -357,3 +357,23 @@ class TestIntegration:
         assert summary["enforced_events"] == 0
 
         print("✓ Data gathering workflow works")
+
+
+def test_fee_tracking():
+    """Verify fees are included in P&L."""
+    from src.risk.manager import RiskManager
+    from decimal import Decimal
+
+    risk = RiskManager()
+
+    # Record a trade with fee
+    risk.record_trade(
+        "t1", "BUY", Decimal("0.50"), Decimal("100"),
+        realized_pnl=Decimal("10"),  # $10 gross profit
+        fee=Decimal("0.50")  # $0.50 fee
+    )
+
+    # Net P&L should be 10 - 0.50 = 9.50
+    assert risk.daily_pnl == Decimal("9.50"), f"Expected 9.50, got {risk.daily_pnl}"
+
+    print("✓ Fee tracking works")

@@ -363,3 +363,24 @@ class TestIntegration:
 
         finally:
             await feed.stop()
+
+
+def test_heartbeat_tracking():
+    """Verify heartbeat tracking works."""
+    from src.feed.data_store import DataStore
+    import time
+
+    store = DataStore(stale_threshold=30.0)
+
+    # Initially, no messages received
+    assert store.seconds_since_any_message() == float('inf')
+
+    # Record a message
+    store.record_message_received()
+    time.sleep(0.1)
+
+    # Should be about 0.1 seconds
+    elapsed = store.seconds_since_any_message()
+    assert 0 < elapsed < 1.0
+
+    print(f"✓ Heartbeat tracking works ({elapsed:.2f}s since message)")

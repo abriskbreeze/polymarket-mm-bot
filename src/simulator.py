@@ -20,6 +20,7 @@ class OrderSimulator:
     def __init__(self):
         self.orders: Dict[str, Order] = {}
         self.trades: List[Trade] = []
+        self._positions: Dict[str, Decimal] = {}
 
     def create_order(
         self,
@@ -71,6 +72,16 @@ class OrderSimulator:
             logger.debug(f"[SIM] Cancelled {cancelled} orders")
         return cancelled
 
+    def _update_position(self, token_id: str, side: OrderSide, size: Decimal):
+        """Update cached position after a fill."""
+        if token_id not in self._positions:
+            self._positions[token_id] = Decimal("0")
+
+        if side == OrderSide.BUY:
+            self._positions[token_id] += size
+        else:
+            self._positions[token_id] -= size
+
     def check_fills(self, token_id: str, bid: Decimal, ask: Decimal) -> int:
         """
         Check if any orders should fill based on market prices.
@@ -100,6 +111,9 @@ class OrderSimulator:
 
             if should_fill:
                 # Create trade
+                from src.config import SIMULATED_FEE_RATE
+                fee = order.price * order.size * SIMULATED_FEE_RATE
+
                 trade = Trade(
                     id=f"trade_{uuid.uuid4().hex[:12]}",
                     order_id=order.id,
@@ -107,9 +121,11 @@ class OrderSimulator:
                     side=order.side,
                     price=order.price,
                     size=order.size,
+                    fee=fee,
                     is_simulated=True
                 )
                 self.trades.append(trade)
+                self._update_position(token_id, order.side, order.size)
 
                 # Update order
                 order.filled = order.size
@@ -143,24 +159,14 @@ class OrderSimulator:
         return trades
 
     def get_position(self, token_id: str) -> Decimal:
-        """Get net position for a token (positive = long)."""
-        position = Decimal("0")
-
-        for trade in self.trades:
-            if trade.token_id != token_id:
-                continue
-
-            if trade.side == OrderSide.BUY:
-                position += trade.size
-            else:
-                position -= trade.size
-
-        return position
+        """Get net position for a token (cached)."""
+        return self._positions.get(token_id, Decimal("0"))
 
     def reset(self):
         """Reset all orders and trades."""
         self.orders.clear()
         self.trades.clear()
+        self._positions.clear()
         logger.debug("[SIM] Reset")
 
 

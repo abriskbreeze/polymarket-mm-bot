@@ -62,6 +62,13 @@ RISK_MAX_ERRORS_PER_MINUTE = int(os.getenv("RISK_MAX_ERRORS_PER_MINUTE", "5"))  
 _default_enforce = "false" if DRY_RUN else "true"
 RISK_ENFORCE = os.getenv("RISK_ENFORCE", _default_enforce).lower() == "true"
 
+# === Simulation ===
+SIMULATED_FEE_RATE = Decimal(os.getenv("SIMULATED_FEE_RATE", "0.001"))  # 0.1% per trade
+
+# === Rate Limiting ===
+RATE_LIMIT_ORDERS_PER_SECOND = float(os.getenv("RATE_LIMIT_ORDERS_PER_SECOND", "5"))
+RATE_LIMIT_DATA_PER_SECOND = float(os.getenv("RATE_LIMIT_DATA_PER_SECOND", "10"))
+
 
 def has_credentials() -> bool:
     """Check if all required credentials are configured."""

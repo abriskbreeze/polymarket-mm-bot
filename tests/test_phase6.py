@@ -255,3 +255,50 @@ class TestIntegration:
         cancel_all_orders()
 
         print("✓ Real market test works")
+
+
+def test_position_caching():
+    """Verify position is cached, not recalculated."""
+    from src.simulator import get_simulator, reset_simulator
+    from src.models import OrderSide
+    from decimal import Decimal
+
+    reset_simulator()
+    sim = get_simulator()
+
+    # Create and fill orders
+    order1 = sim.create_order("t1", OrderSide.BUY, Decimal("0.50"), Decimal("10"))
+    sim.check_fills("t1", Decimal("0.40"), Decimal("0.50"))
+
+    order2 = sim.create_order("t1", OrderSide.BUY, Decimal("0.50"), Decimal("20"))
+    sim.check_fills("t1", Decimal("0.40"), Decimal("0.50"))
+
+    # Position should be 30
+    assert sim.get_position("t1") == Decimal("30")
+
+    # Sell some
+    order3 = sim.create_order("t1", OrderSide.SELL, Decimal("0.55"), Decimal("15"))
+    sim.check_fills("t1", Decimal("0.55"), Decimal("0.60"))
+
+    # Position should be 15
+    assert sim.get_position("t1") == Decimal("15")
+
+    print("✓ Position caching works")
+
+
+def test_rate_limiter():
+    """Verify rate limiter throttles calls."""
+    import time
+    from src.rate_limiter import RateLimiter
+
+    limiter = RateLimiter(calls_per_second=10)  # 100ms between calls
+
+    start = time.time()
+    for _ in range(5):
+        limiter.wait_sync()
+    elapsed = time.time() - start
+
+    # 5 calls at 10/sec = at least 0.4 seconds (first call is immediate)
+    assert elapsed >= 0.35, f"Expected >= 0.35s, got {elapsed}"
+
+    print(f"✓ Rate limiter works ({elapsed:.2f}s for 5 calls)")

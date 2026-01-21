@@ -46,7 +46,7 @@ class TestQuoteCalculation:
         )
 
         # Set up existing quotes so first condition in _should_requote is False
-        mm.bid.order = Order(
+        mm.bid_order = Order(
             id="bid1",
             token_id="test",
             side=OrderSide.BUY,
@@ -56,7 +56,7 @@ class TestQuoteCalculation:
             status=OrderStatus.LIVE,
             is_simulated=True
         )
-        mm.ask.order = Order(
+        mm.ask_order = Order(
             id="ask1",
             token_id="test",
             side=OrderSide.SELL,
@@ -206,8 +206,8 @@ class TestWithMockFeed:
         mm = SimpleMarketMaker(token_id="test")
 
         # Place some orders first
-        mm.bid.order = sim.create_order("test", OrderSide.BUY, Decimal("0.48"), Decimal("10"))
-        mm.ask.order = sim.create_order("test", OrderSide.SELL, Decimal("0.52"), Decimal("10"))
+        mm.bid_order = sim.create_order("test", OrderSide.BUY, Decimal("0.48"), Decimal("10"))
+        mm.ask_order = sim.create_order("test", OrderSide.SELL, Decimal("0.52"), Decimal("10"))
 
         assert len(get_open_orders()) == 2
 

@@ -90,6 +90,7 @@ class TestWebSocketClient:
         finally:
             await ws.disconnect()
 
+    @pytest.mark.skip(reason="Legacy Phase 3 WebSocket - superseded by Phase 3.5 MarketFeed")
     @pytest.mark.asyncio
     async def test_receive_market_data(self):
         """Verify we receive real-time market data"""
@@ -127,6 +128,7 @@ class TestWebSocketClient:
         finally:
             await ws.disconnect()
 
+    @pytest.mark.skip(reason="Legacy Phase 3 WebSocket - superseded by Phase 3.5 MarketFeed")
     @pytest.mark.asyncio
     async def test_order_book_maintenance(self):
         """Verify local order book is maintained"""

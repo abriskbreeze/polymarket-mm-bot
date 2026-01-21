@@ -1,5 +1,16 @@
 """
 WebSocket client for real-time Polymarket market data.
+
+⚠️ DEPRECATED: This is the Phase 3 WebSocket implementation.
+
+Use MarketFeed from src/feed/ instead (Phase 3.5+), which provides:
+- Better error handling
+- Automatic REST fallback
+- Health monitoring
+- Simplified interface
+
+This module is kept for historical/educational purposes only.
+Production code should use: from src.feed import MarketFeed
 """
 
 import json

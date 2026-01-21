@@ -271,13 +271,19 @@ class RiskManager:
         side: str,
         price: Decimal,
         size: Decimal,
-        realized_pnl: Optional[Decimal] = None
+        realized_pnl: Optional[Decimal] = None,
+        fee: Decimal = Decimal("0")
     ):
         """
         Record a trade for P&L tracking.
 
-        If realized_pnl is provided, use it directly.
-        Otherwise, we'd need entry price tracking (simplified for now).
+        Args:
+            token_id: Token traded
+            side: BUY or SELL
+            price: Execution price
+            size: Trade size
+            realized_pnl: Pre-calculated P&L (if available)
+            fee: Transaction fee (subtracted from P&L)
         """
         self._trades.append({
             "time": time.time(),
@@ -285,11 +291,18 @@ class RiskManager:
             "side": side,
             "price": float(price),
             "size": float(size),
+            "fee": float(fee),
         })
 
         if realized_pnl is not None:
-            self._daily_pnl += realized_pnl
-            logger.info(f"P&L update: {realized_pnl:+.2f} (daily: {self._daily_pnl:+.2f})")
+            # Subtract fee from realized P&L
+            net_pnl = realized_pnl - fee
+            self._daily_pnl += net_pnl
+            logger.info(f"P&L update: {net_pnl:+.2f} (gross: {realized_pnl:+.2f}, fee: {fee:.2f}, daily: {self._daily_pnl:+.2f})")
+        elif fee > 0:
+            # If no realized_pnl but we have a fee, just deduct fee
+            self._daily_pnl -= fee
+            logger.info(f"Fee deducted: {fee:.2f} (daily: {self._daily_pnl:+.2f})")
 
     def record_error(self, error: str):
         """Record an error for rate limiting."""

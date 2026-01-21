@@ -121,6 +121,9 @@ def place_order(
         return get_simulator().create_order(token_id, side, price, size)
 
     # === LIVE MODE ===
+    from src.rate_limiter import get_order_limiter
+    get_order_limiter().wait_sync()
+
     if not has_credentials():
         raise OrderError("No credentials configured for live trading")
 
@@ -175,6 +178,9 @@ def cancel_order(order_id: str) -> bool:
     """
     if DRY_RUN:
         return get_simulator().cancel_order(order_id)
+
+    from src.rate_limiter import get_order_limiter
+    get_order_limiter().wait_sync()
 
     if not has_credentials():
         logger.warning("No credentials for live trading")

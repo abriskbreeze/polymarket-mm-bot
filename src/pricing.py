@@ -65,6 +65,9 @@ def get_order_book(token_id: str) -> Optional[OrderBook]:
     Returns:
         OrderBook object or None if unavailable
     """
+    from src.rate_limiter import get_market_data_limiter
+    get_market_data_limiter().wait_sync()
+
     client = get_client()
 
     try:

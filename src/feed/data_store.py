@@ -41,6 +41,7 @@ class DataStore:
         self._stale_threshold = stale_threshold
         self._sequence: Dict[str, int] = {}  # For gap detection
         self._gap_count: Dict[str, int] = {}
+        self._last_any_message: float = 0.0
 
     # === Data Access ===
 
@@ -189,6 +190,16 @@ class DataStore:
     def get_token_ids(self) -> List[str]:
         """Get all tracked token IDs."""
         return list(self._data.keys())
+
+    def record_message_received(self):
+        """Record that any message was received (for heartbeat tracking)."""
+        self._last_any_message = time.time()
+
+    def seconds_since_any_message(self) -> float:
+        """Get seconds since any message was received."""
+        if self._last_any_message == 0:
+            return float('inf')
+        return time.time() - self._last_any_message
 
     def clear(self):
         """Clear all data."""
