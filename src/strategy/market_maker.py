@@ -65,20 +65,23 @@ class SimpleMarketMaker:
         self._shutdown_event = asyncio.Event()
         self.risk = get_risk_manager()
 
-    async def run(self):
+    async def run(self, install_signals: bool = True):
         """
         Main loop. Runs until stopped.
 
-        Call stop() or send SIGINT (Ctrl+C) to stop.
+        Args:
+            install_signals: If True, install signal handlers. Set False when
+                           called from TUIBotRunner which handles signals itself.
         """
         logger.info(f"Starting market maker for {self.token_id[:16]}...")
         logger.info(f"Mode: {'DRY RUN' if DRY_RUN else 'LIVE'}")
         logger.info(f"Spread: {self.spread}, Size: {self.size}")
 
-        # Set up signal handlers
+        # Set up signal handlers (skip if caller handles signals)
         loop = asyncio.get_event_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, self._handle_signal)
+        if install_signals:
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(sig, self._handle_signal)
 
         try:
             # Start feed

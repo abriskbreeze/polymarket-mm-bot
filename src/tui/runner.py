@@ -62,9 +62,7 @@ class TUIBotRunner:
         """Handle shutdown signal."""
         logger.info("Received shutdown signal (Ctrl+C)")
         self._shutdown_event.set()
-        # Stop the Live display immediately to release terminal
-        if self.renderer:
-            self.renderer.stop()
+        # Context manager will handle Live cleanup when loop exits
 
     async def run(self):
         """Main run loop with TUI."""
@@ -172,7 +170,8 @@ class TUIBotRunner:
     async def _run_market_maker(self):
         """Run the market maker strategy."""
         try:
-            await self.market_maker.run()
+            # Skip signal handlers - TUIBotRunner handles signals
+            await self.market_maker.run(install_signals=False)
         except asyncio.CancelledError:
             pass
         except Exception as e:
