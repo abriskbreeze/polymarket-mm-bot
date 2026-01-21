@@ -311,6 +311,19 @@ class MarketFeed:
         except json.JSONDecodeError:
             return
 
+        # Handle list messages (server sometimes sends arrays)
+        if isinstance(data, list):
+            # Process each item in the list
+            for item in data:
+                if isinstance(item, dict):
+                    await self._process_dict_message(item)
+            return
+
+        # Handle dict messages
+        await self._process_dict_message(data)
+
+    async def _process_dict_message(self, data: dict):
+        """Process a single dict message."""
         event_type = data.get('event_type')
         token_id = data.get('asset_id')
 

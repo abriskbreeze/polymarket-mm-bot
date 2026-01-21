@@ -384,3 +384,35 @@ def test_heartbeat_tracking():
     assert 0 < elapsed < 1.0
 
     print(f"✓ Heartbeat tracking works ({elapsed:.2f}s since message)")
+
+
+@pytest.mark.asyncio
+async def test_list_message_handling():
+    """Verify feed can handle list messages from Polymarket."""
+    from src.feed import MarketFeed
+    import json
+
+    feed = MarketFeed()
+
+    # Create test list message (what Polymarket sometimes sends)
+    list_message = json.dumps([
+        {
+            'event_type': 'book',
+            'asset_id': 'test_token',
+            'bids': [{'price': '0.45', 'size': '100'}],
+            'asks': [{'price': '0.55', 'size': '200'}],
+            'timestamp': '2026-01-21T00:00:00Z'
+        },
+        {
+            'event_type': 'price_change',
+            'asset_id': 'test_token',
+            'price': '0.50'
+        }
+    ])
+
+    # Process without crashing
+    try:
+        await feed._process_message(list_message)
+        print("✓ List messages handled without error")
+    except AttributeError as e:
+        pytest.fail(f"Failed to handle list message: {e}")

@@ -3,39 +3,57 @@ Utility functions for the Polymarket Trading Bot
 """
 
 import logging
+import os
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 
-def setup_logging():
+def setup_logging(log_dir: str = None):
     """
     Configure Python logging for the application
 
-    Sets up console handler with timestamp, level, and message format.
+    Sets up console handler and rotating file handler.
+    Logs are saved to logs/ directory with 10MB rotation, keeping 5 backups.
+
+    Args:
+        log_dir: Optional custom log directory. Defaults to ./logs/
 
     Returns:
         logging.Logger: Configured logger instance
     """
-    # Create logger
     logger = logging.getLogger("polymarket-bot")
     logger.setLevel(logging.INFO)
 
-    # Avoid duplicate handlers if setup_logging is called multiple times
     if not logger.handlers:
-        # Create console handler
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.INFO)
-
-        # Create formatter
         formatter = logging.Formatter(
             fmt='%(asctime)s - %(levelname)s - %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
 
-        # Add formatter to handler
+        # Console handler
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
         console_handler.setFormatter(formatter)
-
-        # Add handler to logger
         logger.addHandler(console_handler)
+
+        # File handler with rotation
+        if log_dir is None:
+            log_dir = Path(__file__).parent.parent / "logs"
+        else:
+            log_dir = Path(log_dir)
+
+        log_dir.mkdir(exist_ok=True)
+        log_file = log_dir / "bot.log"
+
+        file_handler = RotatingFileHandler(
+            log_file,
+            maxBytes=10 * 1024 * 1024,  # 10MB
+            backupCount=5
+        )
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
 
     return logger
 

@@ -116,6 +116,15 @@ class SimpleMarketMaker:
         self._running = False
         self._shutdown_event.set()
 
+    def get_state_for_tui(self) -> dict:
+        """Get current state for TUI rendering."""
+        return {
+            'bid_order': self.bid_order,
+            'ask_order': self.ask_order,
+            'last_mid': self.last_mid,
+            'running': self._running,
+        }
+
     def _handle_signal(self):
         """Handle shutdown signals."""
         self.stop()

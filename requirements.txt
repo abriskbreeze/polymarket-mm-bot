@@ -7,3 +7,4 @@ pytest-asyncio
 pytest-timeout
 certifi
 requests
+rich>=13.0.0
