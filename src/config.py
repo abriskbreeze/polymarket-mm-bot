@@ -51,6 +51,33 @@ MM_REQUOTE_THRESHOLD = Decimal(os.getenv("MM_REQUOTE_THRESHOLD", "0.02"))  # Req
 MM_POSITION_LIMIT = Decimal(os.getenv("MM_POSITION_LIMIT", "50"))  # Max position before skipping side
 MM_LOOP_INTERVAL = float(os.getenv("MM_LOOP_INTERVAL", "1.0"))     # Seconds between loops
 
+# === Smart Market Making ===
+# Market Selection
+MARKET_MIN_VOLUME = float(os.getenv("MARKET_MIN_VOLUME", "10000"))    # Min 24h volume ($)
+MARKET_MIN_SPREAD = float(os.getenv("MARKET_MIN_SPREAD", "0.02"))     # Min spread (too tight = too competitive)
+MARKET_MAX_SPREAD = float(os.getenv("MARKET_MAX_SPREAD", "0.15"))     # Max spread (too wide = illiquid)
+
+# Dynamic Spread
+SPREAD_MIN = Decimal(os.getenv("SPREAD_MIN", "0.02"))                 # Minimum spread (2 cents)
+SPREAD_MAX = Decimal(os.getenv("SPREAD_MAX", "0.10"))                 # Maximum spread (10 cents)
+SPREAD_BASE = Decimal(os.getenv("SPREAD_BASE", "0.04"))               # Base spread before adjustments
+
+# Volatility Tracking
+VOL_SAMPLE_INTERVAL = float(os.getenv("VOL_SAMPLE_INTERVAL", "5.0"))      # Seconds between samples
+VOL_WINDOW_SECONDS = float(os.getenv("VOL_WINDOW_SECONDS", "1800"))       # 30-minute rolling window
+VOL_MIN_SAMPLES = int(os.getenv("VOL_MIN_SAMPLES", "10"))                 # Min samples before calculating
+VOL_MULT_MIN = float(os.getenv("VOL_MULT_MIN", "0.7"))                    # Spread multiplier in calm markets
+VOL_MULT_MAX = float(os.getenv("VOL_MULT_MAX", "2.0"))                    # Spread multiplier in volatile markets
+
+# Inventory Skewing
+INVENTORY_SKEW_MAX = Decimal(os.getenv("INVENTORY_SKEW_MAX", "0.02"))     # Max price skew (2 cents)
+INVENTORY_SIZE_REDUCTION_START = Decimal(os.getenv("INVENTORY_SIZE_REDUCTION_START", "0.5"))  # Start reducing at 50%
+
+# Book Analysis
+BOOK_IMBALANCE_THRESHOLD = float(os.getenv("BOOK_IMBALANCE_THRESHOLD", "0.10"))  # 10% from balanced
+BOOK_DEPTH_CENTS = float(os.getenv("BOOK_DEPTH_CENTS", "5.0"))                    # Analyze depth within 5c
+BOOK_TICK_IMPROVE = float(os.getenv("BOOK_TICK_IMPROVE", "0.01"))                 # Improve by 1 tick
+
 # === Risk Management ===
 RISK_MAX_DAILY_LOSS = Decimal(os.getenv("RISK_MAX_DAILY_LOSS", "50"))  # Stop if lose $50
 RISK_MAX_POSITION = Decimal(os.getenv("RISK_MAX_POSITION", "100"))     # Max position per token

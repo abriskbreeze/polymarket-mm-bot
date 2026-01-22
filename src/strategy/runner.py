@@ -2,19 +2,23 @@
 CLI runner for the market maker.
 """
 
+import argparse
 import asyncio
 import sys
 from decimal import Decimal
+from typing import Union
 
 from src.config import DRY_RUN, get_mode_string
 from src.markets import fetch_active_markets
-from src.strategy.market_maker import SimpleMarketMaker
+from src.pricing import get_order_books
+from src.strategy.market_maker import SimpleMarketMaker, SmartMarketMaker
+from src.strategy.market_scorer import MarketScorer
 from src.utils import setup_logging
 
 logger = setup_logging()
 
 
-async def log_status_periodically(mm: SimpleMarketMaker, interval: float = 30.0):
+async def log_status_periodically(mm: Union[SimpleMarketMaker, SmartMarketMaker], interval: float = 30.0):
     """Log status every N seconds."""
     while mm._running:
         await asyncio.sleep(interval)
@@ -27,8 +31,58 @@ async def log_status_periodically(mm: SimpleMarketMaker, interval: float = 30.0)
             )
 
 
-def select_market():
-    """Let user select a market to trade."""
+def auto_select_market():
+    """Auto-select the best market using MarketScorer."""
+    print("\nFetching and scoring markets...")
+    markets = fetch_active_markets(limit=50)
+
+    if not markets:
+        print("No active markets found!")
+        return None, None
+
+    # Filter markets with token IDs
+    valid_markets = [m for m in markets if m.token_ids]
+    if not valid_markets:
+        print("No markets with token IDs found!")
+        return None, None
+
+    # Fetch order books for scoring
+    token_ids = [m.token_ids[0] for m in valid_markets]
+    books = get_order_books(token_ids)
+
+    # Build scoring input
+    scorer = MarketScorer()
+    score_input = []
+    for m in valid_markets:
+        token_id = m.token_ids[0]
+        book = books.get(token_id)
+        volume = m.volume or 0
+        score_input.append((token_id, m, book, volume))
+
+    # Score and sort
+    scores = scorer.score_markets(score_input)
+
+    # Find best non-rejected market
+    for score in scores:
+        if not score.rejected:
+            # Find the market object
+            for m in valid_markets:
+                if m.token_ids[0] == score.token_id:
+                    print(f"\n✓ Auto-selected: {score.market_question[:50]}...")
+                    print(f"  Score: {score.total_score:.1f}/100")
+                    print(f"  Volume: ${score.volume_24h:,.0f} | Spread: {score.spread:.3f}")
+                    return m, score
+            break
+
+    # All rejected - show why
+    print("\nNo suitable markets found. Top rejections:")
+    for score in scores[:3]:
+        print(f"  - {score.market_question[:40]}... ({score.reject_reason})")
+    return None, None
+
+
+def select_market_manual():
+    """Let user select a market manually."""
     print("\nFetching active markets...")
     markets = fetch_active_markets(limit=20)
 
@@ -66,9 +120,34 @@ def select_market():
 
 def main():
     """Main entry point."""
+    parser = argparse.ArgumentParser(description="Run Polymarket market maker")
+    parser.add_argument(
+        "--simple", action="store_true",
+        help="Use SimpleMarketMaker instead of SmartMarketMaker"
+    )
+    parser.add_argument(
+        "--manual", "-m", action="store_true",
+        help="Manually select market instead of auto-selecting best"
+    )
+    parser.add_argument(
+        "--spread", "-s", type=float, default=0.02,
+        help="Spread to maintain (default: 0.02)"
+    )
+    parser.add_argument(
+        "--size", "-z", type=float, default=10.0,
+        help="Quote size (default: 10.0)"
+    )
+    parser.add_argument(
+        "--position-limit", "-p", type=float, default=100.0,
+        help="Max position size (default: 100.0)"
+    )
+    args = parser.parse_args()
+
+    mm_type = "SimpleMarketMaker" if args.simple else "SmartMarketMaker"
     print("=" * 60)
     print("  POLYMARKET MARKET MAKER")
     print(f"  Mode: {get_mode_string()}")
+    print(f"  Strategy: {mm_type}")
     print("=" * 60)
 
     if not DRY_RUN:
@@ -80,20 +159,41 @@ def main():
             return
 
     # Select market
-    market = select_market()
-    if not market:
-        print("No market selected. Exiting.")
-        return
-
-    token_id = market.token_ids[0]  # Trade the first outcome (YES)
-
-    print(f"\nSelected: {market.question}")
-    print(f"Token: {token_id[:20]}...")
-    print(f"\nStarting market maker...")
+    if args.manual:
+        market = select_market_manual()
+        if not market:
+            print("No market selected. Exiting.")
+            return
+        token_id = market.token_ids[0]
+        print(f"\nSelected: {market.question}")
+        print(f"Token: {token_id[:20]}...")
+    else:
+        market, score = auto_select_market()
+        if not market:
+            print("No suitable market found. Try --manual to select manually.")
+            return
+        token_id = market.token_ids[0]
+    print(f"\nStarting {mm_type}...")
+    print(f"  Spread: {args.spread}")
+    print(f"  Size: {args.size}")
+    print(f"  Position Limit: {args.position_limit}")
     print("Press Ctrl+C to stop\n")
 
     # Run
-    mm = SimpleMarketMaker(token_id)
+    if args.simple:
+        mm = SimpleMarketMaker(
+            token_id=token_id,
+            spread=Decimal(str(args.spread)),
+            size=Decimal(str(args.size)),
+            position_limit=Decimal(str(args.position_limit)),
+        )
+    else:
+        mm = SmartMarketMaker(
+            token_id=token_id,
+            base_spread=Decimal(str(args.spread)),
+            size=Decimal(str(args.size)),
+            position_limit=Decimal(str(args.position_limit)),
+        )
 
     async def run_with_status():
         """Run market maker with periodic status updates."""

@@ -50,7 +50,7 @@ class MarketFeed:
 
     def __init__(
         self,
-        stale_threshold: float = 30.0,
+        stale_threshold: float = 60.0,
         rest_poll_interval: float = 2.0,
         rest_recovery_delay: float = 30.0
     ):
@@ -200,7 +200,7 @@ class MarketFeed:
             return False
 
         # Check if we've received ANY message recently (heartbeat)
-        if self._data_store.seconds_since_any_message() > 45:
+        if self._data_store.seconds_since_any_message() > 90:
             return False
 
         if not self._data_store.all_fresh():

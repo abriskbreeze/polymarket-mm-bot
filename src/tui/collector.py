@@ -11,7 +11,7 @@ from typing import Optional, List
 from src.tui.state import (
     BotState, BotMode, BotStatus,
     MarketState, OrderState, PositionState,
-    RiskState, FeedState, TradeRecord
+    RiskState, FeedState, TradeRecord, SmartMMState
 )
 from src.config import DRY_RUN
 from src.feed import FeedState as FeedStateEnum
@@ -112,6 +112,7 @@ class StateCollector:
         # Collect from market maker
         if self._market_maker:
             state.bid_order, state.ask_order = self._collect_order_state()
+            state.smart_mm = self._collect_smart_mm_state()
 
         # Collect from simulator
         if self._simulator:
@@ -242,6 +243,37 @@ class StateCollector:
             pass
 
         return bid_order, ask_order
+
+    def _collect_smart_mm_state(self) -> Optional[SmartMMState]:
+        """Collect SmartMarketMaker state if available."""
+        if not self._market_maker:
+            return None
+
+        try:
+            mm = self._market_maker
+            # Check if this is a SmartMarketMaker with _last_state
+            if not hasattr(mm, '_last_state') or mm._last_state is None:
+                return None
+
+            s = mm._last_state
+            return SmartMMState(
+                base_spread=s.base_spread,
+                vol_multiplier=s.vol_multiplier,
+                inv_multiplier=s.inv_multiplier,
+                final_spread=s.final_spread,
+                volatility_level=s.volatility_level,
+                realized_vol=s.realized_vol,
+                inventory_pct=s.inventory_pct,
+                inventory_level=s.inventory_level,
+                bid_skew=s.bid_skew,
+                ask_skew=s.ask_skew,
+                imbalance_signal=s.imbalance_signal,
+                imbalance_adjustment=s.imbalance_adjustment,
+                unrealized_pnl=s.unrealized_pnl,
+                vwap_entry=s.vwap_entry,
+            )
+        except Exception:
+            return None
 
     def _collect_position_state(self) -> Optional[PositionState]:
         """Collect position and P&L from simulator."""

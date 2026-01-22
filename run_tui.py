@@ -14,10 +14,62 @@ import sys
 
 from src.config import DRY_RUN
 from src.markets import fetch_active_markets
+from src.pricing import get_order_books
+from src.strategy.market_scorer import MarketScorer
 from src.tui.runner import run_with_tui
 from src.utils import setup_logging
 
 logger = setup_logging()
+
+
+def auto_select_market():
+    """Auto-select the best market using MarketScorer."""
+    print("\n📊 Fetching and scoring markets...\n")
+
+    try:
+        markets = fetch_active_markets(limit=50)
+    except Exception as e:
+        print(f"Error fetching markets: {e}")
+        return None, None
+
+    # Filter markets with tokens
+    markets = [m for m in markets if m.token_ids]
+    if not markets:
+        print("No active markets with token IDs found.")
+        return None, None
+
+    # Fetch order books for scoring
+    token_ids = [m.token_ids[0] for m in markets]
+    books = get_order_books(token_ids)
+
+    # Build scoring input
+    scorer = MarketScorer()
+    score_input = []
+    for m in markets:
+        token_id = m.token_ids[0]
+        book = books.get(token_id)
+        volume = m.volume or 0
+        score_input.append((token_id, m, book, volume))
+
+    # Score and sort
+    scores = scorer.score_markets(score_input)
+
+    # Find best non-rejected market
+    for score in scores:
+        if not score.rejected:
+            for m in markets:
+                if m.token_ids[0] == score.token_id:
+                    print(f"✓ Auto-selected: {score.market_question[:55]}...")
+                    print(f"  Score: {score.total_score:.1f}/100")
+                    print(f"  Volume: ${score.volume_24h:,.0f} | Spread: {score.spread:.3f}")
+                    return m, score
+            break
+
+    # All rejected
+    print("No suitable markets found. Top rejections:")
+    for score in scores[:3]:
+        print(f"  - {score.market_question[:40]}... ({score.reject_reason})")
+    return None, None
 
 
 def select_market_interactive():
@@ -25,23 +77,38 @@ def select_market_interactive():
     print("\n📊 Fetching active markets...\n")
 
     try:
-        markets = fetch_active_markets(limit=10)
+        # Fetch more markets since API sorting is unreliable
+        markets = fetch_active_markets(limit=100)
     except Exception as e:
         print(f"Error fetching markets: {e}")
         sys.exit(1)
 
-    # Filter markets with tokens
+    # Filter markets with tokens and sort by volume client-side
     markets = [m for m in markets if m.token_ids]
+    markets.sort(key=lambda m: m.volume or 0, reverse=True)
+    markets = markets[:15]  # Top 15 by volume
 
     if not markets:
         print("No active markets with token IDs found.")
         sys.exit(1)
 
-    print("Select a market:\n")
+    # Fetch order books to show spreads
+    print("Fetching spreads...")
+    token_ids = [m.token_ids[0] for m in markets]
+    books = get_order_books(token_ids)
+
+    print("\nSelect a market:\n")
     for i, market in enumerate(markets, 1):
         volume_str = f"${market.volume:,.0f}" if market.volume else "N/A"
-        print(f"  {i}. {market.question[:60]}...")
-        print(f"     Volume: {volume_str}")
+        token_id = market.token_ids[0]
+        book = books.get(token_id)
+        if book and book.spread and book.midpoint:
+            spread_pct = (book.spread / book.midpoint) * 100
+            spread_str = f"{spread_pct:.1f}%"
+        else:
+            spread_str = "N/A"
+        print(f"  {i}. {market.question[:55]}...")
+        print(f"     Volume: {volume_str:>12}  |  Spread: {spread_str}")
         print()
 
     while True:
@@ -93,6 +160,16 @@ def main():
         default=100.0,
         help="Max position size (default: 100.0)"
     )
+    parser.add_argument(
+        "--simple",
+        action="store_true",
+        help="Use SimpleMarketMaker instead of SmartMarketMaker"
+    )
+    parser.add_argument(
+        "--manual", "-m",
+        action="store_true",
+        help="Manually select market instead of auto-selecting best"
+    )
 
     args = parser.parse_args()
 
@@ -114,14 +191,23 @@ def main():
     if args.token:
         token_id = args.token
         question = args.question
-    else:
+    elif args.manual:
         market = select_market_interactive()
         token_id = market.token_ids[0]
         question = market.question
         print(f"\n✓ Selected: {question[:50]}...")
         print(f"  Token: {token_id[:20]}...")
+    else:
+        market, score = auto_select_market()
+        if not market:
+            print("\nNo suitable market found. Try --manual to select manually.")
+            sys.exit(1)
+        token_id = market.token_ids[0]
+        question = market.question
 
+    mm_type = "SimpleMarketMaker" if args.simple else "SmartMarketMaker"
     print(f"\n🚀 Starting TUI bot...")
+    print(f"   Market Maker: {mm_type}")
     print(f"   Spread: {args.spread}")
     print(f"   Size: {args.size}")
     print(f"   Position Limit: {args.position_limit}")
@@ -134,7 +220,8 @@ def main():
             market_question=question,
             spread=args.spread,
             size=args.size,
-            position_limit=args.position_limit
+            position_limit=args.position_limit,
+            use_smart_mm=not args.simple,
         ))
     except KeyboardInterrupt:
         print("\nShutdown complete.")

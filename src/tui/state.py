@@ -119,6 +119,46 @@ class FeedState:
 
 
 @dataclass
+class SmartMMState:
+    """Smart market maker state (optional, for SmartMarketMaker only)."""
+    # Spread dynamics
+    base_spread: Decimal = Decimal("0.04")
+    vol_multiplier: float = 1.0
+    inv_multiplier: float = 1.0
+    final_spread: Decimal = Decimal("0.04")
+
+    # Volatility
+    volatility_level: str = "UNKNOWN"  # LOW, NORMAL, HIGH, EXTREME
+    realized_vol: float = 0.0
+
+    # Inventory
+    inventory_pct: float = 0.0
+    inventory_level: str = "NEUTRAL"  # NEUTRAL, LONG, SHORT, MAX_LONG, MAX_SHORT
+    bid_skew: Decimal = Decimal("0")
+    ask_skew: Decimal = Decimal("0")
+
+    # Book imbalance
+    imbalance_signal: str = "BALANCED"  # BID_HEAVY, ASK_HEAVY, BALANCED
+    imbalance_adjustment: Decimal = Decimal("0")
+
+    # P&L
+    unrealized_pnl: Decimal = Decimal("0")
+    vwap_entry: Optional[Decimal] = None
+
+    @property
+    def spread_description(self) -> str:
+        """Human-readable spread description."""
+        parts = []
+        if self.vol_multiplier != 1.0:
+            parts.append(f"vol:{self.vol_multiplier:.1f}x")
+        if self.inv_multiplier != 1.0:
+            parts.append(f"inv:{self.inv_multiplier:.1f}x")
+        if not parts:
+            return "base"
+        return " ".join(parts)
+
+
+@dataclass
 class TradeRecord:
     """Recent trade record."""
     timestamp: datetime
@@ -158,6 +198,9 @@ class BotState:
 
     # Feed
     feed: FeedState = field(default_factory=FeedState)
+
+    # Smart MM state (None if using SimpleMarketMaker)
+    smart_mm: Optional[SmartMMState] = None
 
     # Recent activity
     recent_trades: List[TradeRecord] = field(default_factory=list)

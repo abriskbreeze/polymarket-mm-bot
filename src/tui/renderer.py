@@ -148,7 +148,7 @@ class TUIRenderer:
         )
 
     def _render_market(self, state: BotState) -> Panel:
-        """Render market data panel."""
+        """Render market data panel with smart MM metrics if available."""
         if not state.market:
             return Panel(
                 Text("No market data", style="dim"),
@@ -176,9 +176,42 @@ class TUIRenderer:
         table.add_row("Midpoint", Text(f"${m.midpoint:.4f}" if m.midpoint else "—", style=mid_style))
         table.add_row("Spread", Text(f"${m.spread:.4f} ({m.spread_bps:.1f} bps)" if m.spread else "—", style="cyan"))
 
+        # Smart MM metrics (if available)
+        if state.smart_mm:
+            s = state.smart_mm
+            table.add_row("", "")
+
+            # Dynamic spread
+            spread_info = f"${s.final_spread:.3f}"
+            if s.vol_multiplier != 1.0 or s.inv_multiplier != 1.0:
+                spread_info += f" ({s.spread_description})"
+            table.add_row("Our Spread", Text(spread_info, style="cyan bold"))
+
+            # Volatility indicator
+            vol_styles = {"LOW": "green", "NORMAL": "blue", "HIGH": "yellow", "EXTREME": "red bold"}
+            vol_style = vol_styles.get(s.volatility_level, "dim")
+            vol_text = f"{s.volatility_level} ({s.realized_vol:.1%})" if s.realized_vol > 0 else s.volatility_level
+            table.add_row("Volatility", Text(vol_text, style=vol_style))
+
+            # Imbalance arrow
+            imbal_styles = {"BID_HEAVY": ("green", "↑"), "ASK_HEAVY": ("red", "↓"), "BALANCED": ("dim", "=")}
+            imbal_style, imbal_icon = imbal_styles.get(s.imbalance_signal, ("dim", "?"))
+            table.add_row("Imbalance", Text(f"{imbal_icon} {s.imbalance_signal}", style=imbal_style))
+
+            # Inventory
+            inv_styles = {"NEUTRAL": "blue", "LONG": "green", "SHORT": "red", "MAX_LONG": "green bold", "MAX_SHORT": "red bold"}
+            inv_style = inv_styles.get(s.inventory_level, "dim")
+            inv_text = f"{s.inventory_level} ({s.inventory_pct:+.0f}%)"
+            table.add_row("Inventory", Text(inv_text, style=inv_style))
+
+            # Skews
+            if s.bid_skew != 0 or s.ask_skew != 0:
+                skew_text = f"bid:{s.bid_skew:+.3f} ask:{s.ask_skew:+.3f}"
+                table.add_row("Skew", Text(skew_text, style="yellow"))
+
         return Panel(
             table,
-            title="[bold]📊 Market[/]",
+            title="[bold]📊 Market[/]" + (" [cyan](SMART)[/]" if state.smart_mm else ""),
             border_style="blue"
         )
 

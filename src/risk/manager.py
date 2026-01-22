@@ -117,6 +117,14 @@ class RiskManager:
         # Risk event log for data gathering
         self._risk_events: List[RiskEvent] = []
 
+        # Volatility-adjusted limits
+        self._volatility_multiplier: float = 1.0  # 1.0 = normal, <1 = high vol (reduce limits)
+        self._vol_adjusted_position: Decimal = max_position
+
+        # Unrealized P&L tracking
+        self._entry_prices: Dict[str, Decimal] = {}  # token_id -> avg entry price
+        self._unrealized_pnl: Decimal = Decimal("0")
+
         logger.info(f"RiskManager initialized: enforce={enforce}")
 
     def check(self, token_ids: Optional[List[str]] = None) -> RiskCheck:
@@ -241,19 +249,27 @@ class RiskManager:
         return RiskCheck(RiskStatus.OK)
 
     def _check_positions(self, token_ids: List[str]) -> RiskCheck:
-        """Check position limits."""
+        """Check position limits (uses volatility-adjusted limit)."""
         total_exposure = Decimal("0")
+
+        # Use vol-adjusted limit instead of raw max_position
+        effective_limit = self._vol_adjusted_position
 
         for token_id in token_ids:
             position = get_position(token_id)
             abs_position = abs(position)
             total_exposure += abs_position
 
-            if abs_position > self.max_position:
+            if abs_position > effective_limit:
                 return RiskCheck(
                     RiskStatus.WARN,
-                    f"Position limit exceeded for {token_id[:16]}: {position}",
-                    {"token_id": token_id, "position": float(position)}
+                    f"Position limit exceeded for {token_id[:16]}: {position} > {effective_limit}",
+                    {
+                        "token_id": token_id,
+                        "position": float(position),
+                        "limit": float(effective_limit),
+                        "vol_adjusted": self._volatility_multiplier < 1.0,
+                    }
                 )
 
         if total_exposure > self.max_total_exposure:
@@ -363,6 +379,78 @@ class RiskManager:
             "non_enforced_events": len(self._risk_events) - len(enforced),
         }
 
+    def set_volatility_multiplier(self, multiplier: float):
+        """
+        Adjust position limits based on volatility.
+
+        In high volatility, reduce position limits to manage risk.
+
+        Args:
+            multiplier: Spread multiplier from volatility tracker.
+                       1.0 = normal vol -> 100% position limit
+                       1.5 = high vol -> 70% position limit
+                       2.0 = extreme vol -> 50% position limit
+        """
+        # Inverse relationship: higher vol multiplier = lower position limit
+        # Maps: 0.7->1.0 (calm), 1.0->1.0 (normal), 1.5->0.7, 2.0->0.5
+        if multiplier <= 1.0:
+            limit_mult = 1.0
+        else:
+            # Linear reduction: 1.5 -> 0.7, 2.0 -> 0.5
+            limit_mult = max(0.5, 1.0 - (multiplier - 1.0) * 0.5)
+
+        self._volatility_multiplier = limit_mult
+        self._vol_adjusted_position = self.max_position * Decimal(str(limit_mult))
+
+        if limit_mult < 1.0:
+            logger.info(
+                f"Vol-adjusted position limit: {self._vol_adjusted_position:.0f} "
+                f"({limit_mult:.0%} of {self.max_position})"
+            )
+
+    def get_vol_adjusted_position_limit(self) -> Decimal:
+        """Get current volatility-adjusted position limit."""
+        return self._vol_adjusted_position
+
+    def update_unrealized_pnl(
+        self,
+        token_id: str,
+        position: Decimal,
+        current_price: Decimal,
+        entry_price: Optional[Decimal] = None,
+    ):
+        """
+        Update unrealized P&L for a position.
+
+        Args:
+            token_id: Token with the position
+            position: Current position size (positive=long, negative=short)
+            current_price: Current mid price
+            entry_price: Average entry price (stored if provided)
+        """
+        if entry_price is not None:
+            self._entry_prices[token_id] = entry_price
+
+        stored_entry = self._entry_prices.get(token_id)
+        if stored_entry is None or position == 0:
+            self._unrealized_pnl = Decimal("0")
+            return
+
+        # Unrealized P&L = position * (current - entry)
+        # Long: profit if current > entry
+        # Short: profit if current < entry
+        self._unrealized_pnl = position * (current_price - stored_entry)
+
+    @property
+    def unrealized_pnl(self) -> Decimal:
+        """Get current unrealized P&L."""
+        return self._unrealized_pnl
+
+    @property
+    def total_pnl(self) -> Decimal:
+        """Get total P&L (realized + unrealized)."""
+        return self._daily_pnl + self._unrealized_pnl
+
     def get_status(self) -> Dict:
         """Get current risk status summary."""
         now = time.time()
@@ -374,8 +462,12 @@ class RiskManager:
             "killed": self._killed,
             "kill_reason": self._kill_reason,
             "daily_pnl": float(self._daily_pnl),
+            "unrealized_pnl": float(self._unrealized_pnl),
+            "total_pnl": float(self._daily_pnl + self._unrealized_pnl),
             "max_daily_loss": float(self.max_daily_loss),
             "pnl_percent_of_limit": float(abs(self._daily_pnl) / self.max_daily_loss * 100) if self.max_daily_loss else 0,
+            "vol_adjusted_position_limit": float(self._vol_adjusted_position),
+            "volatility_multiplier": self._volatility_multiplier,
             "errors_last_minute": recent_errors,
             "in_cooldown": time.time() < self._cooldown_until,
             "cooldown_remaining": max(0, int(self._cooldown_until - time.time())),
