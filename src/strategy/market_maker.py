@@ -22,6 +22,12 @@ from src.config import (
     SPREAD_MIN,
     SPREAD_MAX,
     INVENTORY_SKEW_MAX,
+    TIMING_BASE_INTERVAL,
+    TIMING_FAST_INTERVAL,
+    TIMING_SLEEP_INTERVAL,
+    TIMING_VOL_THRESHOLD,
+    TIMING_INACTIVITY_THRESHOLD,
+    TIMING_FAST_MODE_DURATION,
 )
 from src.models import Order, OrderSide
 from src.trading import place_order, cancel_order, cancel_all_orders, OrderError
@@ -34,6 +40,7 @@ from src.strategy.volatility import VolatilityTracker
 from src.strategy.book_analyzer import BookAnalyzer
 from src.strategy.inventory import InventoryManager
 from src.strategy.parity import check_parity, ParityStatus
+from src.strategy.timing import AdaptiveTimer
 from src.risk.market_pnl import MarketPnLTracker
 from src.telemetry.trade_logger import TradeLogger
 from src.alpha import (
@@ -42,10 +49,15 @@ from src.alpha import (
     FlowAnalyzer,
     EventTracker,
     TokenPair,
+    CompetitorDetector,
+    RegimeDetector,
+    TimePatternAnalyzer,
 )
 from src.config import (
     ARB_MIN_PROFIT_BPS,
     FLOW_WINDOW_SECONDS,
+    COMPETITOR_WINDOW_SIZE,
+    REGIME_WINDOW_SIZE,
 )
 
 logger = setup_logging()
@@ -130,6 +142,16 @@ class SmartMarketMaker:
         self.trade_logger = TradeLogger(log_file=f"logs/trades_{token_id[:8]}.jsonl")
         self.complement_token_id = complement_token_id
 
+        # Adaptive timing
+        self.timer = AdaptiveTimer(
+            base_interval=TIMING_BASE_INTERVAL,
+            fast_interval=TIMING_FAST_INTERVAL,
+            sleep_interval=TIMING_SLEEP_INTERVAL,
+            volatility_threshold=TIMING_VOL_THRESHOLD,
+            inactivity_threshold=TIMING_INACTIVITY_THRESHOLD,
+            fast_mode_duration=TIMING_FAST_MODE_DURATION,
+        )
+
         # Alpha modules
         self.arb_detector = ArbitrageDetector(min_profit_bps=ARB_MIN_PROFIT_BPS)
         self.pair_tracker = PairTracker()
@@ -138,6 +160,11 @@ class SmartMarketMaker:
             window_seconds=FLOW_WINDOW_SECONDS,
         )
         self.event_tracker = EventTracker()
+
+        # Market intelligence modules
+        self.competitor_detector = CompetitorDetector(window_size=COMPETITOR_WINDOW_SIZE)
+        self.regime_detector = RegimeDetector(window_size=REGIME_WINDOW_SIZE)
+        self.time_analyzer = TimePatternAnalyzer()
 
         # Configure event tracker with market resolution time
         if market_end_date:
@@ -209,10 +236,12 @@ class SmartMarketMaker:
                 except Exception as e:
                     logger.error(f"Loop error: {e}")
 
+                # Use adaptive interval instead of fixed
+                interval = self.timer.get_interval()
                 try:
                     await asyncio.wait_for(
                         self._shutdown_event.wait(),
-                        timeout=self.loop_interval
+                        timeout=interval
                     )
                 except asyncio.TimeoutError:
                     pass
@@ -270,10 +299,13 @@ class SmartMarketMaker:
             pnl_stats = self.pnl_tracker.get_market_stats(self.token_id)
             pnl_str = f"${pnl_stats.realized_pnl:.2f}" if pnl_stats else "$0.00"
             fills = pnl_stats.trade_count if pnl_stats else 0
+            timer_mode = self.timer.get_mode().value
+            timer_interval = self.timer.get_interval()
             logger.info(
                 f"[HEARTBEAT] Loop #{self._loop_count} | "
                 f"Mid: {self.last_mid or 'N/A'} | "
-                f"Fills: {fills} | P&L: {pnl_str}"
+                f"Fills: {fills} | P&L: {pnl_str} | "
+                f"Timer: {timer_mode} ({timer_interval:.1f}s)"
             )
             self._last_heartbeat = now
 
@@ -352,10 +384,53 @@ class SmartMarketMaker:
         # Update volatility tracker
         self.volatility.update(float(mid))
 
+        # Update adaptive timer with price observation
+        self.timer.update_from_price(float(mid))
+
         # Get order book for analysis
         order_book = None
         if hasattr(self.feed, '_data_store'):
             order_book = self.feed._data_store.get_order_book(self.token_id)
+
+        # Feed market intelligence modules
+        if order_book:
+            # Record orders for competitor detection
+            for level in order_book.bids[:10]:  # Top 10 bids
+                price = Decimal(str(level.price))
+                size = Decimal(str(level.size))
+                self.competitor_detector.record_order(price, size, "BUY", mid)
+
+            for level in order_book.asks[:10]:  # Top 10 asks
+                price = Decimal(str(level.price))
+                size = Decimal(str(level.size))
+                self.competitor_detector.record_order(price, size, "SELL", mid)
+
+            # Record liquidity snapshot for regime detection
+            bid_depth = sum(
+                (Decimal(str(level.size)) * Decimal(str(level.price))
+                for level in order_book.bids[:5]),
+                Decimal(0)
+            )
+            ask_depth = sum(
+                (Decimal(str(level.size)) * Decimal(str(level.price))
+                for level in order_book.asks[:5]),
+                Decimal(0)
+            )
+            best_bid_price = Decimal(str(order_book.best_bid)) if order_book.best_bid else mid
+            best_ask_price = Decimal(str(order_book.best_ask)) if order_book.best_ask else mid
+            spread = best_ask_price - best_bid_price if best_ask_price > best_bid_price else Decimal("0.01")
+            volume = bid_depth + ask_depth  # Proxy for recent volume
+
+            self.regime_detector.record_snapshot(spread, bid_depth, ask_depth, volume)
+
+            # Record time pattern stats (hourly aggregation happens internally)
+            current_hour = datetime.now().hour
+            self.time_analyzer.record_hourly_stats(
+                hour=current_hour,
+                volume=volume,
+                avg_spread=spread,
+                fill_rate=0.5,  # Will be improved with real fill data
+            )
 
         # Check for simulated fills in DRY_RUN mode
         if DRY_RUN:
@@ -501,6 +576,32 @@ class SmartMarketMaker:
             half_spread_evt = spread / 2
             bid_price = mid - half_spread_evt + inv_state.bid_skew + imbalance_adj + flow_state.recommended_skew
             ask_price = mid + half_spread_evt + inv_state.ask_skew + imbalance_adj + flow_state.recommended_skew
+
+        # 6d. Market intelligence adjustments
+
+        # Competitor response - widen if facing large aggressive competitor
+        comp_response = self.competitor_detector.get_strategy_response()
+        if not comp_response.should_compete:
+            logger.info(f"[COMPETITOR] {comp_response.reason}")
+            spread = spread * Decimal(str(comp_response.spread_multiplier))
+
+        # Regime adjustment - adapt to liquidity conditions
+        regime_adj = self.regime_detector.get_strategy_adjustment()
+        if regime_adj.should_pause:
+            logger.warning(f"[REGIME] {regime_adj.reason} - reducing size")
+        if regime_adj.spread_multiplier != 1.0:
+            spread = spread * Decimal(str(regime_adj.spread_multiplier))
+
+        # Time-of-day adjustment
+        current_hour = datetime.now().hour
+        time_adj = self.time_analyzer.get_adjustment_for_hour(current_hour)
+        if time_adj.spread_multiplier != 1.0:
+            spread = spread * Decimal(str(time_adj.spread_multiplier))
+
+        # Recalculate prices after all adjustments
+        half_spread_final = spread / 2
+        bid_price = mid - half_spread_final + inv_state.bid_skew + imbalance_adj + flow_state.recommended_skew
+        ask_price = mid + half_spread_final + inv_state.ask_skew + imbalance_adj + flow_state.recommended_skew
 
         # Round to tick
         bid_price = (bid_price * 100).quantize(Decimal("1")) / 100

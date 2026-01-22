@@ -19,6 +19,24 @@ from src.alpha.events import (
     EventSignal,
     MarketEvent,
 )
+from src.alpha.competitors import (
+    CompetitorDetector,
+    OrderPattern,
+    CompetitorProfile,
+    StrategyResponse as CompetitorResponse,
+)
+from src.alpha.regime import (
+    RegimeDetector,
+    LiquidityRegime,
+    LiquiditySnapshot,
+    RegimeTransition,
+    StrategyAdjustment as RegimeAdjustment,
+)
+from src.alpha.time_patterns import (
+    TimePatternAnalyzer,
+    HourlyStats,
+    TimeAdjustment,
+)
 
 __all__ = [
     # Arbitrage
@@ -37,4 +55,19 @@ __all__ = [
     "EventType",
     "EventSignal",
     "MarketEvent",
+    # Competitor Detection
+    "CompetitorDetector",
+    "OrderPattern",
+    "CompetitorProfile",
+    "CompetitorResponse",
+    # Regime Detection
+    "RegimeDetector",
+    "LiquidityRegime",
+    "LiquiditySnapshot",
+    "RegimeTransition",
+    "RegimeAdjustment",
+    # Time Patterns
+    "TimePatternAnalyzer",
+    "HourlyStats",
+    "TimeAdjustment",
 ]

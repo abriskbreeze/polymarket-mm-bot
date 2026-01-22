@@ -91,6 +91,19 @@ FLOW_IMBALANCE_THRESHOLD = float(os.getenv("FLOW_IMBALANCE_THRESHOLD", "0.15"))
 # Events
 EVENT_RESOLUTION_WARNING_HOURS = int(os.getenv("EVENT_RESOLUTION_WARNING_HOURS", "24"))
 
+# === Market Intelligence ===
+# Competitor Detection
+COMPETITOR_WINDOW_SIZE = int(os.getenv("COMPETITOR_WINDOW_SIZE", "1000"))
+COMPETITOR_BACK_OFF_THRESHOLD = Decimal(os.getenv("COMPETITOR_BACK_OFF_THRESHOLD", "5000"))
+
+# Regime Detection
+REGIME_WINDOW_SIZE = int(os.getenv("REGIME_WINDOW_SIZE", "50"))
+REGIME_HIGH_THRESHOLD = float(os.getenv("REGIME_HIGH_THRESHOLD", "0.7"))
+REGIME_LOW_THRESHOLD = float(os.getenv("REGIME_LOW_THRESHOLD", "0.3"))
+
+# Time Patterns
+TIME_PATTERN_HISTORY = int(os.getenv("TIME_PATTERN_HISTORY", "100"))
+
 # === Risk Management ===
 RISK_MAX_DAILY_LOSS = Decimal(os.getenv("RISK_MAX_DAILY_LOSS", "50"))  # Stop if lose $50
 RISK_MAX_POSITION = Decimal(os.getenv("RISK_MAX_POSITION", "100"))     # Max position per token
@@ -102,12 +115,41 @@ RISK_MAX_ERRORS_PER_MINUTE = int(os.getenv("RISK_MAX_ERRORS_PER_MINUTE", "5"))  
 _default_enforce = "false" if DRY_RUN else "true"
 RISK_ENFORCE = os.getenv("RISK_ENFORCE", _default_enforce).lower() == "true"
 
+# === Risk-Adjusted Returns ===
+# Dynamic Limits
+DYNAMIC_LIMIT_FLOOR = Decimal(os.getenv("DYNAMIC_LIMIT_FLOOR", "0.2"))
+DYNAMIC_LIMIT_CEILING = Decimal(os.getenv("DYNAMIC_LIMIT_CEILING", "2.0"))
+
+# Adverse Selection
+ADVERSE_LOOKBACK_SECONDS = float(os.getenv("ADVERSE_LOOKBACK_SECONDS", "300"))
+ADVERSE_TOXIC_THRESHOLD = float(os.getenv("ADVERSE_TOXIC_THRESHOLD", "0.4"))
+
+# Kelly Criterion
+KELLY_FRACTION = float(os.getenv("KELLY_FRACTION", "0.25"))
+KELLY_MAX_POSITION = float(os.getenv("KELLY_MAX_POSITION", "0.10"))
+
+# Correlation Risk
+CORRELATION_THRESHOLD = float(os.getenv("CORRELATION_THRESHOLD", "0.5"))
+MAX_CORRELATED_EXPOSURE = Decimal(os.getenv("MAX_CORRELATED_EXPOSURE", "500"))
+
 # === Simulation ===
 SIMULATED_FEE_RATE = Decimal(os.getenv("SIMULATED_FEE_RATE", "0.001"))  # 0.1% per trade
 
 # === Rate Limiting ===
 RATE_LIMIT_ORDERS_PER_SECOND = float(os.getenv("RATE_LIMIT_ORDERS_PER_SECOND", "5"))
 RATE_LIMIT_DATA_PER_SECOND = float(os.getenv("RATE_LIMIT_DATA_PER_SECOND", "10"))
+
+# === Execution Optimization ===
+# Adaptive Timing
+TIMING_BASE_INTERVAL = float(os.getenv("TIMING_BASE_INTERVAL", "2.0"))
+TIMING_FAST_INTERVAL = float(os.getenv("TIMING_FAST_INTERVAL", "0.1"))
+TIMING_SLEEP_INTERVAL = float(os.getenv("TIMING_SLEEP_INTERVAL", "5.0"))
+TIMING_VOL_THRESHOLD = float(os.getenv("TIMING_VOL_THRESHOLD", "0.01"))
+TIMING_INACTIVITY_THRESHOLD = float(os.getenv("TIMING_INACTIVITY_THRESHOLD", "60.0"))
+TIMING_FAST_MODE_DURATION = float(os.getenv("TIMING_FAST_MODE_DURATION", "10.0"))
+
+# Queue Optimization
+QUEUE_IMPROVE_THRESHOLD = float(os.getenv("QUEUE_IMPROVE_THRESHOLD", "100"))
 
 
 def has_credentials() -> bool:
