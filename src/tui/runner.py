@@ -15,7 +15,7 @@ from src.tui.renderer import TUIRenderer
 from src.config import DRY_RUN
 from src.feed import MarketFeed
 from src.risk.manager import RiskManager, get_risk_manager
-from src.strategy.market_maker import SimpleMarketMaker, SmartMarketMaker
+from src.strategy.market_maker import SmartMarketMaker
 from src.simulator import get_simulator
 from src.utils import setup_logging
 
@@ -39,7 +39,7 @@ class TUIBotRunner:
         size: float = 10.0,
         position_limit: float = 100.0,
         update_interval: float = 0.5,
-        use_smart_mm: bool = False,
+        complement_token_id: Optional[str] = None,
     ):
         self.token_id = token_id
         self.market_question = market_question
@@ -47,11 +47,11 @@ class TUIBotRunner:
         self.size = size
         self.position_limit = position_limit
         self.update_interval = update_interval
-        self.use_smart_mm = use_smart_mm
+        self.complement_token_id = complement_token_id
 
         # Components
         self.feed: Optional[MarketFeed] = None
-        self.market_maker = None  # SimpleMarketMaker or SmartMarketMaker
+        self.market_maker = None  # SmartMarketMaker
         self.risk_manager: Optional[RiskManager] = None
         self.collector: Optional[StateCollector] = None
         self.renderer: Optional[TUIRenderer] = None
@@ -152,21 +152,14 @@ class TUIBotRunner:
         self.risk_manager = get_risk_manager()
 
         # Market maker (convert floats to Decimal for arithmetic compatibility)
-        if self.use_smart_mm:
-            logger.info("Using SmartMarketMaker (adaptive spread, inventory skewing)")
-            self.market_maker = SmartMarketMaker(
-                token_id=self.token_id,
-                base_spread=Decimal(str(self.spread)),
-                size=Decimal(str(self.size)),
-                position_limit=Decimal(str(self.position_limit)),
-            )
-        else:
-            self.market_maker = SimpleMarketMaker(
-                token_id=self.token_id,
-                spread=Decimal(str(self.spread)),
-                size=Decimal(str(self.size)),
-                position_limit=Decimal(str(self.position_limit)),
-            )
+        logger.info("Using SmartMarketMaker (adaptive spread, inventory skewing)")
+        self.market_maker = SmartMarketMaker(
+            token_id=self.token_id,
+            base_spread=Decimal(str(self.spread)),
+            size=Decimal(str(self.size)),
+            position_limit=Decimal(str(self.position_limit)),
+            complement_token_id=self.complement_token_id,
+        )
 
         # State collector
         self.collector = get_collector()
@@ -206,7 +199,7 @@ async def run_with_tui(
     spread: float = 0.02,
     size: float = 10.0,
     position_limit: float = 100.0,
-    use_smart_mm: bool = False,
+    complement_token_id: Optional[str] = None,
 ):
     """
     Convenience function to run bot with TUI.
@@ -214,17 +207,17 @@ async def run_with_tui(
     Args:
         token_id: Token to trade
         market_question: Market question for display
-        spread: Spread to maintain (base spread for SmartMM)
+        spread: Spread to maintain (base spread for SmartMarketMaker)
         size: Quote size
         position_limit: Max position
-        use_smart_mm: Use SmartMarketMaker instead of SimpleMarketMaker
+        complement_token_id: Complement token ID for arbitrage detection
     """
     runner = TUIBotRunner(
         token_id=token_id,
         market_question=market_question,
         spread=spread,
         size=size,
-        use_smart_mm=use_smart_mm,
-        position_limit=position_limit
+        position_limit=position_limit,
+        complement_token_id=complement_token_id,
     )
     await runner.run()

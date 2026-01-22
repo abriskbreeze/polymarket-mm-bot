@@ -47,7 +47,7 @@ MIN_ORDER_SIZE = Decimal(os.getenv("MIN_ORDER_SIZE", "5"))
 # === Market Making ===
 MM_SPREAD = Decimal(os.getenv("MM_SPREAD", "0.04"))        # 4 cents each side
 MM_SIZE = Decimal(os.getenv("MM_SIZE", "10"))              # Order size
-MM_REQUOTE_THRESHOLD = Decimal(os.getenv("MM_REQUOTE_THRESHOLD", "0.02"))  # Requote if mid moves 2c
+MM_REQUOTE_THRESHOLD = Decimal(os.getenv("MM_REQUOTE_THRESHOLD", "0.03"))  # Requote if mid moves 3c
 MM_POSITION_LIMIT = Decimal(os.getenv("MM_POSITION_LIMIT", "50"))  # Max position before skipping side
 MM_LOOP_INTERVAL = float(os.getenv("MM_LOOP_INTERVAL", "1.0"))     # Seconds between loops
 
@@ -60,14 +60,14 @@ MARKET_MAX_SPREAD = float(os.getenv("MARKET_MAX_SPREAD", "0.15"))     # Max spre
 # Dynamic Spread
 SPREAD_MIN = Decimal(os.getenv("SPREAD_MIN", "0.02"))                 # Minimum spread (2 cents)
 SPREAD_MAX = Decimal(os.getenv("SPREAD_MAX", "0.10"))                 # Maximum spread (10 cents)
-SPREAD_BASE = Decimal(os.getenv("SPREAD_BASE", "0.04"))               # Base spread before adjustments
+SPREAD_BASE = Decimal(os.getenv("SPREAD_BASE", "0.05"))               # Base spread before adjustments
 
 # Volatility Tracking
 VOL_SAMPLE_INTERVAL = float(os.getenv("VOL_SAMPLE_INTERVAL", "5.0"))      # Seconds between samples
 VOL_WINDOW_SECONDS = float(os.getenv("VOL_WINDOW_SECONDS", "1800"))       # 30-minute rolling window
 VOL_MIN_SAMPLES = int(os.getenv("VOL_MIN_SAMPLES", "10"))                 # Min samples before calculating
-VOL_MULT_MIN = float(os.getenv("VOL_MULT_MIN", "0.7"))                    # Spread multiplier in calm markets
-VOL_MULT_MAX = float(os.getenv("VOL_MULT_MAX", "2.0"))                    # Spread multiplier in volatile markets
+VOL_MULT_MIN = float(os.getenv("VOL_MULT_MIN", "0.5"))                    # Spread multiplier in calm markets
+VOL_MULT_MAX = float(os.getenv("VOL_MULT_MAX", "3.0"))                    # Spread multiplier in volatile markets
 
 # Inventory Skewing
 INVENTORY_SKEW_MAX = Decimal(os.getenv("INVENTORY_SKEW_MAX", "0.02"))     # Max price skew (2 cents)
@@ -77,6 +77,19 @@ INVENTORY_SIZE_REDUCTION_START = Decimal(os.getenv("INVENTORY_SIZE_REDUCTION_STA
 BOOK_IMBALANCE_THRESHOLD = float(os.getenv("BOOK_IMBALANCE_THRESHOLD", "0.10"))  # 10% from balanced
 BOOK_DEPTH_CENTS = float(os.getenv("BOOK_DEPTH_CENTS", "5.0"))                    # Analyze depth within 5c
 BOOK_TICK_IMPROVE = float(os.getenv("BOOK_TICK_IMPROVE", "0.01"))                 # Improve by 1 tick
+
+# === Alpha Generation ===
+# Arbitrage
+ARB_MIN_PROFIT_BPS = int(os.getenv("ARB_MIN_PROFIT_BPS", "20"))
+ARB_SCAN_INTERVAL = float(os.getenv("ARB_SCAN_INTERVAL", "5.0"))
+
+# Order Flow
+FLOW_WINDOW_SECONDS = float(os.getenv("FLOW_WINDOW_SECONDS", "60"))
+FLOW_AGGRESSIVE_WEIGHT = float(os.getenv("FLOW_AGGRESSIVE_WEIGHT", "2.0"))
+FLOW_IMBALANCE_THRESHOLD = float(os.getenv("FLOW_IMBALANCE_THRESHOLD", "0.15"))
+
+# Events
+EVENT_RESOLUTION_WARNING_HOURS = int(os.getenv("EVENT_RESOLUTION_WARNING_HOURS", "24"))
 
 # === Risk Management ===
 RISK_MAX_DAILY_LOSS = Decimal(os.getenv("RISK_MAX_DAILY_LOSS", "50"))  # Stop if lose $50

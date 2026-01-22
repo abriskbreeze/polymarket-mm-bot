@@ -1,7 +1,6 @@
 """
-Market makers for Polymarket.
+Market maker for Polymarket.
 
-SimpleMarketMaker: Fixed spread, basic position limits
 SmartMarketMaker: Dynamic spread, inventory skewing, volatility-aware
 """
 
@@ -33,297 +32,22 @@ from src.utils import setup_logging
 from src.strategy.volatility import VolatilityTracker
 from src.strategy.book_analyzer import BookAnalyzer
 from src.strategy.inventory import InventoryManager
+from src.strategy.parity import check_parity, ParityStatus
+from src.risk.market_pnl import MarketPnLTracker
+from src.telemetry.trade_logger import TradeLogger
+from src.alpha import (
+    ArbitrageDetector,
+    PairTracker,
+    FlowAnalyzer,
+    EventTracker,
+    TokenPair,
+)
+from src.config import (
+    ARB_MIN_PROFIT_BPS,
+    FLOW_WINDOW_SECONDS,
+)
 
 logger = setup_logging()
-
-
-class SimpleMarketMaker:
-    """
-    Simple market maker for a single token.
-
-    Usage:
-        mm = SimpleMarketMaker(token_id="abc123")
-        await mm.run()  # Runs until stopped
-
-    Stop with Ctrl+C or call mm.stop()
-    """
-
-    def __init__(
-        self,
-        token_id: str,
-        spread: Decimal = MM_SPREAD,
-        size: Decimal = MM_SIZE,
-        requote_threshold: Decimal = MM_REQUOTE_THRESHOLD,
-        position_limit: Decimal = MM_POSITION_LIMIT,
-        loop_interval: float = MM_LOOP_INTERVAL,
-    ):
-        self.token_id = token_id
-        self.spread = spread
-        self.size = size
-        self.requote_threshold = requote_threshold
-        self.position_limit = position_limit
-        self.loop_interval = loop_interval
-
-        self.feed: Optional[MarketFeed] = None
-        self.bid_order: Optional[Order] = None
-        self.ask_order: Optional[Order] = None
-        self.last_mid: Optional[Decimal] = None
-        self._running = False
-        self._shutdown_event = asyncio.Event()
-        self.risk = get_risk_manager()
-
-    async def run(self, install_signals: bool = True):
-        """
-        Main loop. Runs until stopped.
-
-        Args:
-            install_signals: If True, install signal handlers. Set False when
-                           called from TUIBotRunner which handles signals itself.
-        """
-        logger.info(f"Starting market maker for {self.token_id[:16]}...")
-        logger.info(f"Mode: {'DRY RUN' if DRY_RUN else 'LIVE'}")
-        logger.info(f"Spread: {self.spread}, Size: {self.size}")
-
-        # Set up signal handlers (skip if caller handles signals)
-        loop = asyncio.get_event_loop()
-        if install_signals:
-            for sig in (signal.SIGINT, signal.SIGTERM):
-                loop.add_signal_handler(sig, self._handle_signal)
-
-        try:
-            # Start feed
-            self.feed = MarketFeed()
-            await self.feed.start([self.token_id])
-
-            # Wait for initial data
-            await self._wait_for_data()
-
-            self._running = True
-            logger.info("Market maker running. Press Ctrl+C to stop.")
-
-            # Main loop
-            while self._running and not self._shutdown_event.is_set():
-                try:
-                    await self._loop_iteration()
-                except Exception as e:
-                    logger.error(f"Loop error: {e}")
-
-                # Wait for next iteration or shutdown
-                try:
-                    await asyncio.wait_for(
-                        self._shutdown_event.wait(),
-                        timeout=self.loop_interval
-                    )
-                except asyncio.TimeoutError:
-                    pass  # Normal - continue loop
-
-        finally:
-            await self._shutdown()
-
-    def stop(self):
-        """Signal the market maker to stop."""
-        logger.info("Stop requested...")
-        self._running = False
-        self._shutdown_event.set()
-
-    def get_state_for_tui(self) -> dict:
-        """Get current state for TUI rendering."""
-        return {
-            'bid_order': self.bid_order,
-            'ask_order': self.ask_order,
-            'last_mid': self.last_mid,
-            'running': self._running,
-        }
-
-    def _handle_signal(self):
-        """Handle shutdown signals."""
-        self.stop()
-
-    async def _wait_for_data(self, timeout: float = 10.0):
-        """Wait for feed to have data."""
-        logger.info("Waiting for market data...")
-        start = asyncio.get_event_loop().time()
-
-        while asyncio.get_event_loop().time() - start < timeout:
-            if self.feed and self.feed.is_healthy:
-                mid = self.feed.get_midpoint(self.token_id)
-                if mid is not None:
-                    logger.info(f"Got initial mid: {mid}")
-                    return
-            await asyncio.sleep(0.5)
-
-        raise RuntimeError("Timeout waiting for market data")
-
-    async def _loop_iteration(self):
-        """Single iteration of the market making loop."""
-        # === RISK CHECK ===
-        check = self.risk.check([self.token_id])
-
-        if check.status == RiskStatus.STOP:
-            # In enforce mode: stop trading
-            # In data-gather mode: this won't happen (check returns OK)
-            logger.error(f"Risk stop: {check.reason}")
-            await self._cancel_all_quotes()
-            self.stop()
-            return
-
-        if check.status == RiskStatus.WARN:
-            logger.warning(f"Risk warning: {check.reason}")
-            # Could reduce size here in future
-
-        # Check feed health
-        if not self.feed or not self.feed.is_healthy:
-            logger.warning("Feed unhealthy - cancelling quotes")
-            await self._cancel_all_quotes()
-            return
-
-        # Get current mid
-        mid = self.feed.get_midpoint(self.token_id)
-        if mid is None:
-            logger.warning("No midpoint available")
-            return
-
-        mid = Decimal(str(mid))
-
-        # Check for simulated fills in DRY_RUN mode
-        if DRY_RUN:
-            bid = self.feed.get_best_bid(self.token_id)
-            ask = self.feed.get_best_ask(self.token_id)
-            if bid is not None and ask is not None:
-                # Log what we're checking (helps debug why fills don't occur)
-                sim = get_simulator()
-                open_orders = sim.get_open_orders(self.token_id)
-                if open_orders:
-                    for o in open_orders:
-                        would_fill = (o.side.value == "BUY" and o.price >= Decimal(str(ask))) or \
-                                     (o.side.value == "SELL" and o.price <= Decimal(str(bid)))
-                        if would_fill:
-                            logger.info(f"[SIM] {o.side.value} @ {o.price} CROSSES market (bid={bid}, ask={ask})")
-                        else:
-                            # Log occasionally to show check is happening (every ~30s based on loop timing)
-                            logger.debug(f"[SIM] {o.side.value} @ {o.price} vs market bid={bid} ask={ask} -> no cross")
-
-                filled = sim.check_fills(
-                    self.token_id, Decimal(str(bid)), Decimal(str(ask))
-                )
-                if filled:
-                    logger.info(f"[SIM] {filled} order(s) filled")
-
-        # Check if we need to requote
-        if self._should_requote(mid):
-            await self._update_quotes(mid)
-            self.last_mid = mid
-
-    def _should_requote(self, mid: Decimal) -> bool:
-        """Check if quotes need updating."""
-        # Always quote if we have no quotes
-        if self.bid_order is None and self.ask_order is None:
-            return True
-
-        # Requote if mid moved beyond threshold
-        if self.last_mid is not None:
-            move = abs(mid - self.last_mid)
-            if move >= self.requote_threshold:
-                logger.info(f"Mid moved {move:.4f} - requoting")
-                return True
-
-        return False
-
-    async def _update_quotes(self, mid: Decimal):
-        """Cancel old quotes and place new ones."""
-        # Calculate target prices
-        half_spread = self.spread / 2
-        bid_price = mid - half_spread
-        ask_price = mid + half_spread
-
-        # Round to tick (0.01)
-        bid_price = (bid_price * 100).quantize(Decimal("1")) / 100
-        ask_price = (ask_price * 100).quantize(Decimal("1")) / 100
-
-        # Ensure valid range
-        bid_price = max(Decimal("0.01"), min(Decimal("0.98"), bid_price))
-        ask_price = max(Decimal("0.02"), min(Decimal("0.99"), ask_price))
-
-        logger.info(f"Mid: {mid:.2f} -> Bid: {bid_price:.2f}, Ask: {ask_price:.2f}")
-
-        # Cancel existing quotes
-        await self._cancel_all_quotes()
-
-        # Check position for skewing
-        position = get_position(self.token_id)
-
-        # Place new quotes
-        # Skip buy if too long
-        if position < self.position_limit:
-            self.bid_order = self._place_quote(OrderSide.BUY, bid_price)
-        else:
-            logger.info(f"Position {position} at limit - skipping BUY")
-
-        # Skip sell if too short
-        if position > -self.position_limit:
-            self.ask_order = self._place_quote(OrderSide.SELL, ask_price)
-        else:
-            logger.info(f"Position {position} at limit - skipping SELL")
-
-    def _place_quote(self, side: OrderSide, price: Decimal) -> Optional[Order]:
-        """Place a single quote."""
-        try:
-            order = place_order(
-                token_id=self.token_id,
-                side=side,
-                price=price,
-                size=self.size
-            )
-            logger.info(f"Placed {side.value} @ {price}: {order.id}")
-            return order
-        except OrderError as e:
-            logger.error(f"Failed to place {side.value}: {e}")
-            return None
-
-    async def _cancel_all_quotes(self):
-        """Cancel all our quotes."""
-        if self.bid_order and self.bid_order.is_live:
-            cancel_order(self.bid_order.id)
-        if self.ask_order and self.ask_order.is_live:
-            cancel_order(self.ask_order.id)
-
-        self.bid_order = None
-        self.ask_order = None
-
-    async def _shutdown(self):
-        """Clean shutdown."""
-        logger.info("Shutting down market maker...")
-
-        # Log risk event summary
-        summary = self.risk.get_risk_event_summary()
-        if summary["total_events"] > 0:
-            logger.info(f"Risk Event Summary:")
-            logger.info(f"  Total events: {summary['total_events']}")
-            logger.info(f"  STOP events: {summary['stop_events']} (enforced: {summary['enforced_events']})")
-            logger.info(f"  WARN events: {summary['warn_events']}")
-            logger.info(f"  Final P&L: {self.risk.daily_pnl}")
-
-        # Cancel all orders
-        logger.info("Cancelling all orders...")
-        cancel_all_orders(self.token_id)
-
-        # Stop feed
-        if self.feed:
-            logger.info("Stopping feed...")
-            await self.feed.stop()
-
-        logger.info("Market maker stopped.")
-
-
-async def run_market_maker(token_id: str, **kwargs):
-    """
-    Convenience function to run a market maker.
-
-    Usage:
-        asyncio.run(run_market_maker("token123"))
-    """
-    mm = SimpleMarketMaker(token_id, **kwargs)
-    await mm.run()
 
 
 @dataclass
@@ -358,7 +82,7 @@ class SmartMarketMaker:
     """
     Adaptive market maker with dynamic spread and inventory management.
 
-    Features over SimpleMarketMaker:
+    Features:
     - Dynamic spread based on volatility
     - Gradual inventory skewing (not hard stops)
     - Order book imbalance awareness
@@ -381,6 +105,7 @@ class SmartMarketMaker:
         position_limit: Decimal = MM_POSITION_LIMIT,
         loop_interval: float = MM_LOOP_INTERVAL,
         skew_max: Decimal = INVENTORY_SKEW_MAX,
+        complement_token_id: Optional[str] = None,
     ):
         self.token_id = token_id
         self.base_spread = base_spread
@@ -399,6 +124,30 @@ class SmartMarketMaker:
             position_limit=position_limit,
             skew_max=skew_max,
         )
+        self.pnl_tracker = MarketPnLTracker()
+        self.trade_logger = TradeLogger(log_file=f"logs/trades_{token_id[:8]}.jsonl")
+        self.complement_token_id = complement_token_id
+
+        # Alpha modules
+        self.arb_detector = ArbitrageDetector(min_profit_bps=ARB_MIN_PROFIT_BPS)
+        self.pair_tracker = PairTracker()
+        self.flow_analyzer = FlowAnalyzer(
+            token_id=token_id,
+            window_seconds=FLOW_WINDOW_SECONDS,
+        )
+        self.event_tracker = EventTracker()
+
+        # Register YES/NO pair for arbitrage detection
+        if self.complement_token_id:
+            pair = TokenPair(
+                condition_id=f"pair-{token_id[:8]}",
+                yes_token_id=token_id,
+                no_token_id=self.complement_token_id,
+                market_slug="",
+            )
+            self.arb_detector.register_pair(pair)
+            self.pair_tracker._pairs[pair.condition_id] = pair
+            logger.info(f"Registered arbitrage pair: {token_id[:8]} <-> {self.complement_token_id[:8]}")
 
         # State
         self.feed: Optional[MarketFeed] = None
@@ -408,6 +157,8 @@ class SmartMarketMaker:
         self._running = False
         self._shutdown_event = asyncio.Event()
         self.risk = get_risk_manager()
+        self._loop_count = 0
+        self._last_heartbeat = 0.0
 
         # Computed values (for TUI display)
         self._last_state: Optional[SmartMMState] = None
@@ -425,8 +176,19 @@ class SmartMarketMaker:
 
         try:
             self.feed = MarketFeed()
-            await self.feed.start([self.token_id])
+            # Subscribe to both tokens if we have a complement (for arbitrage)
+            tokens_to_watch = [self.token_id]
+            if self.complement_token_id:
+                tokens_to_watch.append(self.complement_token_id)
+                logger.info(f"Subscribing to YES + NO tokens for arbitrage")
+            await self.feed.start(tokens_to_watch)
             await self._wait_for_data()
+
+            # Register flow analyzer callback
+            def flow_callback(price, size, side, is_taker):
+                self.flow_analyzer.record_trade(price, size, side, is_taker)
+
+            self.feed.register_flow_callback(self.token_id, flow_callback)
 
             self._running = True
             logger.info("Smart market maker running. Press Ctrl+C to stop.")
@@ -456,12 +218,16 @@ class SmartMarketMaker:
 
     def get_state_for_tui(self) -> dict:
         """Get current state for TUI rendering."""
+        pnl_stats = self.pnl_tracker.get_market_stats(self.token_id)
         return {
             'bid_order': self.bid_order,
             'ask_order': self.ask_order,
             'last_mid': self.last_mid,
             'running': self._running,
             'smart_state': self._last_state,
+            'realized_pnl': pnl_stats.realized_pnl if pnl_stats else Decimal("0"),
+            'trade_count': pnl_stats.trade_count if pnl_stats else 0,
+            'win_rate': pnl_stats.win_rate if pnl_stats else 0.0,
         }
 
     def _handle_signal(self):
@@ -485,6 +251,22 @@ class SmartMarketMaker:
 
     async def _loop_iteration(self):
         """Single iteration of the smart market making loop."""
+        import time
+        self._loop_count += 1
+
+        # Heartbeat every 30 seconds
+        now = time.time()
+        if now - self._last_heartbeat >= 30:
+            pnl_stats = self.pnl_tracker.get_market_stats(self.token_id)
+            pnl_str = f"${pnl_stats.realized_pnl:.2f}" if pnl_stats else "$0.00"
+            fills = pnl_stats.trade_count if pnl_stats else 0
+            logger.info(
+                f"[HEARTBEAT] Loop #{self._loop_count} | "
+                f"Mid: {self.last_mid or 'N/A'} | "
+                f"Fills: {fills} | P&L: {pnl_str}"
+            )
+            self._last_heartbeat = now
+
         # Risk check
         check = self.risk.check([self.token_id])
         if check.status == RiskStatus.STOP:
@@ -502,12 +284,60 @@ class SmartMarketMaker:
             await self._cancel_all_quotes()
             return
 
+        # Scan for arbitrage opportunities
+        if self.complement_token_id and self.feed:
+            def price_getter(token_id: str) -> Optional[Decimal]:
+                if not self.feed:
+                    return None
+                price = self.feed.get_midpoint(token_id)
+                return Decimal(str(price)) if price is not None else None
+
+            # Get prices for debugging
+            yes_price = price_getter(self.token_id)
+            no_price = price_getter(self.complement_token_id)
+
+            signals = self.arb_detector.scan_all(price_getter)
+
+            # Debug log on first loop
+            if self._loop_count == 1 and yes_price and no_price:
+                logger.info(
+                    f"[ARB] Scanning: YES={yes_price:.4f} NO={no_price:.4f} "
+                    f"Sum={yes_price + no_price:.4f}"
+                )
+
+            if signals:
+                for signal in signals:
+                    logger.info(
+                        f"[ARB] {signal.type.value}: {signal.recommended_action} "
+                        f"({signal.profit_bps}bps)"
+                    )
+
         # Get market data
         mid = self.feed.get_midpoint(self.token_id)
         if mid is None:
             logger.warning("No midpoint available")
             return
         mid = Decimal(str(mid))
+
+        # Check YES/NO parity for arbitrage detection
+        if self.complement_token_id:
+            no_mid = self.feed.get_midpoint(self.complement_token_id)
+            if no_mid is not None:
+                parity = check_parity(mid, Decimal(str(no_mid)))
+                if parity == ParityStatus.OVERPRICED:
+                    logger.warning(
+                        f"Arbitrage opportunity: YES+NO = {mid + Decimal(str(no_mid)):.3f} "
+                        "(overpriced, skipping quotes)"
+                    )
+                    self.trade_logger.log_event(
+                        "arbitrage_detected",
+                        yes_price=str(mid),
+                        no_price=str(no_mid),
+                        status=parity.value,
+                    )
+                    return
+                elif parity == ParityStatus.NEAR_ARBITRAGE:
+                    logger.info(f"Near-arbitrage: YES+NO = {mid + Decimal(str(no_mid)):.3f}")
 
         # Update volatility tracker
         self.volatility.update(float(mid))
@@ -538,9 +368,31 @@ class SmartMarketMaker:
                             size=trade.size,
                             side=trade.side.value
                         )
+                        # Track P&L per market
+                        self.pnl_tracker.record_trade(
+                            market_id=self.token_id,
+                            side=trade.side.value,
+                            price=trade.price,
+                            size=trade.size,
+                        )
+                        # Log trade for analysis
+                        self.trade_logger.log_trade(
+                            market_id=self.token_id,
+                            side=trade.side.value,
+                            price=trade.price,
+                            size=trade.size,
+                            fill_type="maker",
+                            order_id=trade.order_id if hasattr(trade, 'order_id') else None,
+                        )
 
         # Calculate dynamic spread and quotes
-        bid_price, ask_price, state = self._calculate_quotes(mid, order_book)
+        result = self._calculate_quotes(mid, order_book)
+        if result is None:
+            # Event signal says not to trade - cancel quotes
+            await self._cancel_all_quotes()
+            return
+
+        bid_price, ask_price, state = result
 
         # Store state for TUI
         self._last_state = state
@@ -554,8 +406,14 @@ class SmartMarketMaker:
         self,
         mid: Decimal,
         order_book,
-    ) -> tuple[Decimal, Decimal, SmartMMState]:
-        """Calculate optimal bid/ask prices using all signals."""
+    ) -> Optional[tuple[Decimal, Decimal, SmartMMState]]:
+        """Calculate optimal bid/ask prices using all signals. Returns None if should not quote."""
+        # Check event signal first - may prohibit trading
+        event_signal = self.event_tracker.get_signal(self.token_id)
+        if not event_signal.should_trade:
+            logger.warning(f"[EVENT] {event_signal.reason} - not quoting")
+            return None
+
         # 1. Volatility multiplier
         vol_mult = self.volatility.get_multiplier()
         vol_state = self.volatility.get_state()
@@ -588,6 +446,51 @@ class SmartMarketMaker:
         # Add imbalance adjustment (shift both in same direction)
         bid_price = bid_price + imbalance_adj
         ask_price = ask_price + imbalance_adj
+
+        # 6. Alpha signal adjustments
+
+        # 6a. Arbitrage detector - skew quotes based on YES/NO price divergence
+        bid_price, ask_price = self.arb_detector.get_quote_adjustment(
+            self.token_id, bid_price, ask_price
+        )
+
+        # 6b. Flow analyzer - adjust based on order flow direction
+        flow_state = self.flow_analyzer.get_state()
+
+        # Log flow state if non-neutral
+        if flow_state.signal.value != "neutral" and flow_state.trade_count > 0:
+            logger.info(
+                f"[FLOW] {flow_state.signal.value.upper()}: "
+                f"{flow_state.trade_count} trades, "
+                f"imbalance={flow_state.imbalance:.2f}, "
+                f"skew={flow_state.recommended_skew:.4f}"
+            )
+
+        bid_price = bid_price + flow_state.recommended_skew
+        ask_price = ask_price + flow_state.recommended_skew
+
+        # Widen spread if high aggression detected (informed traders)
+        if self.flow_analyzer.should_widen_spread():
+            logger.info(f"[FLOW] High aggression detected - widening spread 20%")
+            spread = spread * Decimal("1.2")  # 20% wider
+            # Recalculate with wider spread but keep skews
+            half_spread_new = spread / 2
+            bid_price = mid - half_spread_new + inv_state.bid_skew + imbalance_adj + flow_state.recommended_skew
+            ask_price = mid + half_spread_new + inv_state.ask_skew + imbalance_adj + flow_state.recommended_skew
+            bid_price, ask_price = self.arb_detector.get_quote_adjustment(
+                self.token_id, bid_price, ask_price
+            )
+
+        # 6c. Event tracker spread adjustment (should_trade already checked)
+        if event_signal.spread_multiplier != 1.0:
+            logger.info(
+                f"[EVENT] Spread multiplier: {event_signal.spread_multiplier:.2f}x - {event_signal.reason}"
+            )
+            # Widen spread near events (risk management)
+            spread = spread * Decimal(str(event_signal.spread_multiplier))
+            half_spread_evt = spread / 2
+            bid_price = mid - half_spread_evt + inv_state.bid_skew + imbalance_adj + flow_state.recommended_skew
+            ask_price = mid + half_spread_evt + inv_state.ask_skew + imbalance_adj + flow_state.recommended_skew
 
         # Round to tick
         bid_price = (bid_price * 100).quantize(Decimal("1")) / 100
@@ -663,6 +566,17 @@ class SmartMarketMaker:
         from src.config import MIN_ORDER_SIZE
         bid_size = max(MIN_ORDER_SIZE, bid_size)
         ask_size = max(MIN_ORDER_SIZE, ask_size)
+
+        # Log quote update
+        self.trade_logger.log_quote(
+            market_id=self.token_id,
+            bid_price=bid_price,
+            ask_price=ask_price,
+            bid_size=bid_size,
+            ask_size=ask_size,
+            spread=ask_price - bid_price,
+            mid=mid,
+        )
 
         # Place quotes (respecting inventory limits via size reduction, not hard stops)
         inv_state = self.inventory.get_state()

@@ -1,0 +1,77 @@
+---
+session: alpha-generation
+date: 2026-01-22
+status: complete
+outcome: SUCCEEDED
+---
+
+goal: Phase 1 alpha generation integration - arbitrage, flow analysis, event tracking
+now: Test alpha signals with live trading and verify flow analysis data collection
+
+test: source venv/bin/activate && python -c "from src.feed.trades_poller import TradesPoller; from src.alpha import ArbitrageDetector, FlowAnalyzer; print('✓ Alpha modules OK')"
+
+done_this_session:
+  - task: Fixed trades poller startup bug - now initializes in both WebSocket and REST paths
+    files: [src/feed/feed.py]
+  - task: Integrated arbitrage detection with YES/NO pair registration and scanning
+    files: [src/strategy/market_maker.py, src/strategy/runner.py, src/tui/runner.py, run_tui.py]
+  - task: Created and integrated TradesPoller for authenticated trade flow data
+    files: [src/feed/trades_poller.py, src/feed/feed.py]
+  - task: Added alpha configuration variables
+    files: [src/config.py]
+  - task: Connected FlowAnalyzer callbacks to trade feed
+    files: [src/strategy/market_maker.py]
+  - task: Implemented event signal checking (structure ready, needs metadata)
+    files: [src/strategy/market_maker.py]
+  - task: Set up API authentication with derived credentials
+    files: [.env]
+
+blockers: []
+
+questions:
+  - Should we pass market metadata to EventTracker for resolution time awareness?
+  - What flow signal thresholds work best in production? (current: 60s window, 15% imbalance)
+
+decisions:
+  - trades_poller_placement: Added trades poller startup to both WebSocket success and REST fallback paths to ensure it always starts regardless of data source
+  - dry_run_with_auth: Configured DRY_RUN=true with valid API credentials to get real market data (for flow analysis) while maintaining paper trading (no real money)
+  - complement_token_extraction: Extract complement token from market.token_ids in runner before passing to SmartMarketMaker
+  - flow_callback_dual_source: Register flow callbacks with both WebSocket trade events AND REST trades poller for redundancy
+
+findings:
+  - critical_bug: Trades poller startup code was only in REST fallback branch - WebSocket success path returned early at line 135, never starting the poller
+  - polymarket_websocket_limitation: WebSocket sends last_trade_price embedded in book events but without size/side/aggressor data needed for flow analysis
+  - authenticated_trades_api: get_trades() requires Level 2 API credentials (derived from private key via client.derive_api_key())
+  - dry_run_mode_works_with_auth: Can use DRY_RUN=true with API credentials - gets real market data while simulating orders
+
+worked:
+  - Dual subscription to YES and NO tokens enables arbitrage detection
+  - TradesPoller with 5-second polling interval for trade flow data
+  - Debug logging helped diagnose early return bug
+  - Testing with high-volume markets (Bayern Munich Bundesliga) to verify functionality
+  - API key derivation from private key using py-clob-client
+
+failed:
+  - Initial attempt to use WebSocket trade events for flow analysis (insufficient data)
+  - First API credentials provided by user were invalid (401 error) - needed to regenerate
+
+next:
+  - Monitor flow signals during active trading periods to verify data collection
+  - Configure EventTracker metadata (resolution time, market slug) by passing market object
+  - Test arbitrage signals when YES+NO prices diverge from 1.0
+  - Tune alpha signal thresholds based on real market behavior
+  - Consider adding flow signal logging to verify trades are being recorded
+
+files:
+  created:
+    - src/feed/trades_poller.py
+    - .env
+    - thoughts/shared/handoffs/alpha-generation/2026-01-22_01-12_phase1-complete.yaml
+  modified:
+    - src/feed/feed.py
+    - src/strategy/market_maker.py
+    - src/strategy/runner.py
+    - src/tui/runner.py
+    - run_tui.py
+    - src/config.py
+  deleted: []

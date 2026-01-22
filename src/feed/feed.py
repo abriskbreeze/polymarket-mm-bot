@@ -13,6 +13,7 @@ from src.models import OrderBook
 from src.feed.data_store import DataStore
 from src.feed.websocket_conn import WebSocketConnection
 from src.feed.rest_poller import RESTPoller
+from src.feed.trades_poller import TradesPoller
 from src.utils import setup_logging
 
 logger = setup_logging()
@@ -72,6 +73,7 @@ class MarketFeed:
         self._data_store = DataStore(stale_threshold=stale_threshold)
         self._ws = WebSocketConnection()
         self._rest = RESTPoller(self._data_store, poll_interval=rest_poll_interval)
+        self._trades = TradesPoller(poll_interval=5.0)  # Poll trades every 5 seconds
 
         # Message queue for non-blocking callbacks
         self._message_queue: asyncio.Queue = asyncio.Queue(maxsize=10000)
@@ -86,6 +88,9 @@ class MarketFeed:
         self.on_book_update: Optional[Callable] = None
         self.on_trade: Optional[Callable] = None
         self.on_state_change: Optional[Callable[[FeedState], None]] = None
+
+        # Flow analyzer callbacks (per token)
+        self._flow_callbacks: Dict[str, List[Callable]] = {}
 
         # Wire up internal callbacks
         self._ws.on_message = self._handle_ws_message
@@ -127,6 +132,14 @@ class MarketFeed:
                 # Start health monitor
                 self._health_task = asyncio.create_task(self._health_monitor())
 
+                # Start trades poller for flow analysis
+                logger.debug(f"Attempting to start trades poller for {len(token_ids)} tokens")
+                try:
+                    await self._trades.start(token_ids)
+                    logger.info("✓ Trades poller started for flow analysis")
+                except Exception as e:
+                    logger.warning(f"✗ Trades poller not started: {e}")
+
                 return True
 
         # WebSocket failed, start REST fallback
@@ -137,6 +150,17 @@ class MarketFeed:
 
         # Start health monitor
         self._health_task = asyncio.create_task(self._health_monitor())
+
+        # Start trades poller for flow analysis
+        # NOTE: Requires API credentials (only works in LIVE mode, not DRY_RUN)
+        # In DRY_RUN mode, flow analysis won't get real trade data
+        logger.debug(f"Attempting to start trades poller for {len(token_ids)} tokens")
+        try:
+            await self._trades.start(token_ids)
+            logger.info("✓ Trades poller started for flow analysis")
+        except Exception as e:
+            # Expected in DRY_RUN mode - no credentials configured
+            logger.warning(f"✗ Trades poller not started (requires API credentials): {e}")
 
         return True
 
@@ -163,6 +187,7 @@ class MarketFeed:
         # Disconnect
         await self._ws.disconnect()
         await self._rest.stop()
+        await self._trades.stop()
 
         # Clear data
         self._data_store.clear()
@@ -240,6 +265,19 @@ class MarketFeed:
         return self._data_store.get_best_ask(token_id)
 
     # === Callbacks ===
+
+    def register_flow_callback(self, token_id: str, callback: Callable):
+        """
+        Register callback for trade flow tracking.
+
+        Callback signature: (price: Decimal, size: Decimal, side: str, is_taker: bool) -> None
+        """
+        if token_id not in self._flow_callbacks:
+            self._flow_callbacks[token_id] = []
+        self._flow_callbacks[token_id].append(callback)
+
+        # Also register with trades poller for REST API trade data
+        self._trades.register_callback(token_id, callback)
 
     # === Internal Methods ===
 
@@ -383,6 +421,24 @@ class MarketFeed:
                 )
                 if self._data_source == "websocket":
                     self._data_store.record_ws_message()
+
+                # Notify flow analyzers
+                if token_id in self._flow_callbacks:
+                    from decimal import Decimal
+                    try:
+                        price_dec = Decimal(str(price))
+                        size_dec = Decimal(str(size)) if size else Decimal("0")
+                        side_str = str(side).upper() if side else "UNKNOWN"
+                        is_taker = data.get("taker", False)
+
+                        for callback in self._flow_callbacks[token_id]:
+                            try:
+                                callback(price_dec, size_dec, side_str, is_taker)
+                            except Exception as e:
+                                logger.warning(f"Flow callback error: {e}")
+                    except Exception as e:
+                        logger.warning(f"Failed to process trade for flow: {e}")
+
             await self._invoke_callback(self.on_trade, data)
 
     async def _invoke_callback(self, callback: Optional[Callable], data: Any):

@@ -1,0 +1,62 @@
+---
+session: alpha-generation
+date: 2026-01-21
+status: complete
+outcome: SUCCEEDED
+---
+
+goal: Removed SimpleMarketMaker class, keeping only SmartMarketMaker as default
+now: Push changes to GitHub and verify bot runs correctly
+
+test: source venv/bin/activate && python -c "from src.strategy.market_maker import SmartMarketMaker; print('✓ Import OK')"
+
+done_this_session:
+  - task: Removed SimpleMarketMaker class and run_market_maker() factory from market_maker.py
+    files: [src/strategy/market_maker.py]
+  - task: Updated runner.py to remove --simple flag and always use SmartMarketMaker
+    files: [src/strategy/runner.py]
+  - task: Updated TUI runner to always use SmartMarketMaker, removed use_smart_mm parameter
+    files: [src/tui/runner.py]
+  - task: Removed --simple flag from run_tui.py CLI
+    files: [run_tui.py]
+  - task: Deleted test_phase7.py (only tested SimpleMarketMaker)
+    files: [tests/test_phase7.py]
+  - task: Updated documentation to reflect SmartMarketMaker only
+    files: [README.md, src/tui/state.py]
+
+blockers: []
+
+questions: []
+
+decisions:
+  - single_mm_implementation: Removed SimpleMarketMaker to reduce maintenance burden. SmartMarketMaker is now the only option, with sensible defaults that work for all use cases.
+  - delete_phase7_tests: Deleted test_phase7.py entirely since it only tested SimpleMarketMaker. SmartMarketMaker has integration test coverage via alpha module tests.
+
+findings:
+  - total_removal: Removed approximately 600 lines of code (SimpleMarketMaker class, tests, CLI flags, conditional logic)
+  - no_regressions: All 59 alpha module tests still pass after removal
+  - clean_codebase: No SimpleMarketMaker references remain in source code (only in generated repomix-output.xml)
+
+worked:
+  - Systematic removal approach: class → imports → CLI flags → tests → docs
+  - Verification at each step: syntax checks, import tests, test suite
+  - Using tldr diagnostics to confirm no new type errors introduced
+
+failed: []
+
+next:
+  - Commit changes with descriptive message
+  - Push to GitHub
+  - Run live test to verify SmartMarketMaker works correctly
+
+files:
+  created: []
+  modified:
+    - src/strategy/market_maker.py
+    - src/strategy/runner.py
+    - src/tui/runner.py
+    - run_tui.py
+    - README.md
+    - src/tui/state.py
+  deleted:
+    - tests/test_phase7.py

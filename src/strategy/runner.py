@@ -6,19 +6,17 @@ import argparse
 import asyncio
 import sys
 from decimal import Decimal
-from typing import Union
-
 from src.config import DRY_RUN, get_mode_string
 from src.markets import fetch_active_markets
 from src.pricing import get_order_books
-from src.strategy.market_maker import SimpleMarketMaker, SmartMarketMaker
+from src.strategy.market_maker import SmartMarketMaker
 from src.strategy.market_scorer import MarketScorer
 from src.utils import setup_logging
 
 logger = setup_logging()
 
 
-async def log_status_periodically(mm: Union[SimpleMarketMaker, SmartMarketMaker], interval: float = 30.0):
+async def log_status_periodically(mm: SmartMarketMaker, interval: float = 30.0):
     """Log status every N seconds."""
     while mm._running:
         await asyncio.sleep(interval)
@@ -122,10 +120,6 @@ def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description="Run Polymarket market maker")
     parser.add_argument(
-        "--simple", action="store_true",
-        help="Use SimpleMarketMaker instead of SmartMarketMaker"
-    )
-    parser.add_argument(
         "--manual", "-m", action="store_true",
         help="Manually select market instead of auto-selecting best"
     )
@@ -143,11 +137,10 @@ def main():
     )
     args = parser.parse_args()
 
-    mm_type = "SimpleMarketMaker" if args.simple else "SmartMarketMaker"
     print("=" * 60)
     print("  POLYMARKET MARKET MAKER")
     print(f"  Mode: {get_mode_string()}")
-    print(f"  Strategy: {mm_type}")
+    print(f"  Strategy: SmartMarketMaker")
     print("=" * 60)
 
     if not DRY_RUN:
@@ -173,27 +166,27 @@ def main():
             print("No suitable market found. Try --manual to select manually.")
             return
         token_id = market.token_ids[0]
-    print(f"\nStarting {mm_type}...")
+    print(f"\nStarting SmartMarketMaker...")
     print(f"  Spread: {args.spread}")
     print(f"  Size: {args.size}")
     print(f"  Position Limit: {args.position_limit}")
     print("Press Ctrl+C to stop\n")
 
+    # Get complement token for arbitrage
+    complement_token_id = None
+    if hasattr(market, 'token_ids') and len(market.token_ids) == 2:
+        # Binary market with YES/NO tokens
+        complement_token_id = [tid for tid in market.token_ids if tid != token_id][0]
+        print(f"Found complement token: {complement_token_id[:20]}...")
+
     # Run
-    if args.simple:
-        mm = SimpleMarketMaker(
-            token_id=token_id,
-            spread=Decimal(str(args.spread)),
-            size=Decimal(str(args.size)),
-            position_limit=Decimal(str(args.position_limit)),
-        )
-    else:
-        mm = SmartMarketMaker(
-            token_id=token_id,
-            base_spread=Decimal(str(args.spread)),
-            size=Decimal(str(args.size)),
-            position_limit=Decimal(str(args.position_limit)),
-        )
+    mm = SmartMarketMaker(
+        token_id=token_id,
+        base_spread=Decimal(str(args.spread)),
+        size=Decimal(str(args.size)),
+        position_limit=Decimal(str(args.position_limit)),
+        complement_token_id=complement_token_id,
+    )
 
     async def run_with_status():
         """Run market maker with periodic status updates."""

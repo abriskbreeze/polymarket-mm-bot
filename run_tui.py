@@ -161,11 +161,6 @@ def main():
         help="Max position size (default: 100.0)"
     )
     parser.add_argument(
-        "--simple",
-        action="store_true",
-        help="Use SimpleMarketMaker instead of SmartMarketMaker"
-    )
-    parser.add_argument(
         "--manual", "-m",
         action="store_true",
         help="Manually select market instead of auto-selecting best"
@@ -188,6 +183,7 @@ def main():
             sys.exit(0)
 
     # Get token
+    market = None
     if args.token:
         token_id = args.token
         question = args.question
@@ -205,9 +201,14 @@ def main():
         token_id = market.token_ids[0]
         question = market.question
 
-    mm_type = "SimpleMarketMaker" if args.simple else "SmartMarketMaker"
+    # Get complement token for arbitrage (if available)
+    complement_token_id = None
+    if market and hasattr(market, 'token_ids') and len(market.token_ids) == 2:
+        complement_token_id = [tid for tid in market.token_ids if tid != token_id][0]
+        print(f"   Complement token: {complement_token_id[:20]}...")
+
     print(f"\n🚀 Starting TUI bot...")
-    print(f"   Market Maker: {mm_type}")
+    print(f"   Market Maker: SmartMarketMaker")
     print(f"   Spread: {args.spread}")
     print(f"   Size: {args.size}")
     print(f"   Position Limit: {args.position_limit}")
@@ -221,7 +222,7 @@ def main():
             spread=args.spread,
             size=args.size,
             position_limit=args.position_limit,
-            use_smart_mm=not args.simple,
+            complement_token_id=complement_token_id,
         ))
     except KeyboardInterrupt:
         print("\nShutdown complete.")
