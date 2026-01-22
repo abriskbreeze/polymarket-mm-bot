@@ -6,10 +6,15 @@ SmartMarketMaker: Dynamic spread, inventory skewing, volatility-aware
 
 import asyncio
 import signal
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from typing import Optional
 from dataclasses import dataclass
+
+# Safety constants
+STALE_ORDER_THRESHOLD_SECONDS = 300  # 5 minutes
+BALANCE_CHECK_INTERVAL = 60  # seconds
+BALANCE_DROP_ALERT_PCT = Decimal("0.20")  # Alert if drops 20%
 
 from src.config import (
     DRY_RUN,
@@ -201,6 +206,10 @@ class SmartMarketMaker:
         self._last_heartbeat = 0.0
         self._last_competitor_reason: str = ""  # Track to avoid log spam
 
+        # Balance monitoring (safety)
+        self._initial_balance: Optional[Decimal] = None
+        self._last_balance_check: float = 0.0
+
         # Computed values (for TUI display)
         self._last_state: Optional[SmartMMState] = None
 
@@ -223,6 +232,19 @@ class SmartMarketMaker:
                 tokens_to_watch.append(self.complement_token_id)
                 logger.info(f"Subscribing to YES + NO tokens for arbitrage")
             await self.feed.start(tokens_to_watch)
+
+            # SAFETY: Register callback to cancel orders on disconnect
+            def on_ws_disconnect():
+                logger.warning("[SAFETY] WebSocket disconnected - canceling all orders")
+                try:
+                    cancel_all_orders(self.token_id)
+                    self.bid_order = None
+                    self.ask_order = None
+                except Exception as e:
+                    logger.error(f"[SAFETY] Failed to cancel orders on disconnect: {e}")
+
+            self.feed.register_connection_lost_callback(on_ws_disconnect)
+
             await self._wait_for_data()
 
             # Register flow analyzer callback
@@ -369,8 +391,17 @@ class SmartMarketMaker:
         import time
         self._loop_count += 1
 
-        # Heartbeat every 30 seconds
+        # SAFETY: Check for stale orders every 10 iterations
+        if self._loop_count % 10 == 0:
+            self._cleanup_stale_orders()
+
+        # SAFETY: Periodic balance check
         now = time.time()
+        if now - self._last_balance_check > BALANCE_CHECK_INTERVAL:
+            self._check_balance()
+            self._last_balance_check = now
+
+        # Heartbeat every 30 seconds
         if now - self._last_heartbeat >= 30:
             pnl_stats = self.pnl_tracker.get_market_stats(self.token_id)
             pnl_str = f"${pnl_stats.realized_pnl:.2f}" if pnl_stats else "$0.00"
@@ -810,6 +841,57 @@ class SmartMarketMaker:
 
         self.bid_order = None
         self.ask_order = None
+
+    def _cleanup_stale_orders(self):
+        """Cancel orders older than threshold (safety check)."""
+        now = datetime.now(timezone.utc)
+        stale_threshold = timedelta(seconds=STALE_ORDER_THRESHOLD_SECONDS)
+
+        for order, name in [(self.bid_order, "bid"), (self.ask_order, "ask")]:
+            if order and order.created_at:
+                try:
+                    # Parse ISO format timestamp
+                    created = datetime.fromisoformat(order.created_at.replace('Z', '+00:00'))
+                    age = now - created
+                    if age > stale_threshold:
+                        logger.warning(
+                            f"[SAFETY] {name.upper()} order {order.id[:16]} is {age.seconds}s old - canceling"
+                        )
+                        cancel_order(order.id)
+                        if name == "bid":
+                            self.bid_order = None
+                        else:
+                            self.ask_order = None
+                except Exception as e:
+                    logger.error(f"Stale order check failed for {name}: {e}")
+
+    def _check_balance(self):
+        """Monitor balance for unexpected drops (safety check)."""
+        if DRY_RUN:
+            return
+
+        try:
+            from src.auth import get_balances
+            balances = get_balances()
+            current = balances.get('usdc_allowance', Decimal('0'))
+
+            if self._initial_balance is None:
+                self._initial_balance = current
+                logger.info(f"[BALANCE] Initial balance: ${current:.2f}")
+                return
+
+            if self._initial_balance > 0:
+                drop_pct = (self._initial_balance - current) / self._initial_balance
+                if drop_pct > BALANCE_DROP_ALERT_PCT:
+                    logger.error(
+                        f"[SAFETY] Balance dropped {drop_pct:.1%}: "
+                        f"${self._initial_balance:.2f} -> ${current:.2f} - TRIGGERING KILL SWITCH"
+                    )
+                    self.risk.kill_switch("Balance dropped >20%")
+                    self.stop()
+
+        except Exception as e:
+            logger.warning(f"Balance check failed: {e}")
 
     async def _shutdown(self):
         """Clean shutdown."""

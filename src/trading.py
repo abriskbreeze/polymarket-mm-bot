@@ -4,6 +4,8 @@ Order placement and management.
 Handles both DRY_RUN (simulated) and LIVE (real) modes.
 """
 
+import time
+from datetime import datetime, timezone
 from typing import Optional
 from decimal import Decimal, ROUND_DOWN
 
@@ -24,6 +26,50 @@ logger = setup_logging()
 class OrderError(Exception):
     """Order placement error."""
     pass
+
+
+# Balance check state (cached to reduce API calls)
+_last_balance_check: float = 0
+_cached_balance: Optional[Decimal] = None
+BALANCE_CACHE_SECONDS = 30
+MIN_BALANCE_FOR_ORDER = Decimal("1.0")  # Don't trade below $1
+
+
+def check_balance_for_order(price: Decimal, size: Decimal) -> None:
+    """
+    Ensure sufficient balance for order.
+
+    Raises OrderError if:
+    - Balance is below minimum threshold
+    - Order cost exceeds 50% of available balance
+
+    Uses cached balance to reduce API calls.
+    """
+    global _last_balance_check, _cached_balance
+
+    if DRY_RUN:
+        return  # Skip balance checks in simulation
+
+    now = time.time()
+    if now - _last_balance_check > BALANCE_CACHE_SECONDS or _cached_balance is None:
+        try:
+            from src.auth import get_balances
+            balances = get_balances()
+            _cached_balance = balances.get('usdc_allowance', Decimal('0'))
+            _last_balance_check = now
+            logger.debug(f"[BALANCE] Updated cache: ${_cached_balance:.2f}")
+        except Exception as e:
+            logger.warning(f"Balance check failed: {e}")
+            return  # Don't block if API fails, but log it
+
+    order_cost = price * size
+    if _cached_balance < MIN_BALANCE_FOR_ORDER:
+        raise OrderError(f"Balance too low: ${_cached_balance:.2f} < ${MIN_BALANCE_FOR_ORDER}")
+
+    if order_cost > _cached_balance * Decimal("0.5"):
+        raise OrderError(
+            f"Order cost ${order_cost:.2f} exceeds 50% of balance ${_cached_balance:.2f}"
+        )
 
 
 def get_tick_size(token_id: str) -> Decimal:
@@ -116,6 +162,7 @@ def place_order(
     price = validate_price(price, token_id)
     validate_size(size)
     check_position_limit(token_id, side, size)
+    check_balance_for_order(price, size)  # SAFETY: Verify balance
 
     if DRY_RUN:
         return get_simulator().create_order(token_id, side, price, size)
@@ -161,7 +208,8 @@ def place_order(
             size=size,
             filled=Decimal("0"),
             status=OrderStatus.LIVE,
-            is_simulated=False
+            is_simulated=False,
+            created_at=datetime.now(timezone.utc).isoformat(),
         )
 
     except OrderError:

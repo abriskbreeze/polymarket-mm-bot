@@ -49,6 +49,7 @@ class WebSocketConnection:
         self.on_disconnect: Optional[Callable[[], None]] = None
         self.on_error: Optional[Callable[[Exception], None]] = None
         self.on_max_retries: Optional[Callable[[], None]] = None
+        self.on_connection_lost: Optional[Callable[[], None]] = None  # Fires BEFORE reconnect
 
     @property
     def is_connected(self) -> bool:
@@ -158,6 +159,14 @@ class WebSocketConnection:
             except (ConnectionClosed, ConnectionClosedError) as e:
                 logger.warning(f"Connection lost: {e}")
                 self._connected = False
+
+                # SAFETY: Fire callback BEFORE reconnect attempts
+                if self.on_connection_lost:
+                    try:
+                        self.on_connection_lost()
+                    except Exception as cb_err:
+                        logger.error(f"Connection lost callback error: {cb_err}")
+
                 if self._should_run:
                     await self._reconnect()
                 break

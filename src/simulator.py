@@ -4,6 +4,7 @@ Simple order simulator for DRY_RUN mode.
 Maintains orders, tracks fills, and calculates positions.
 """
 
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from decimal import Decimal
 import uuid
@@ -38,7 +39,8 @@ class OrderSimulator:
             size=size,
             filled=Decimal("0"),
             status=OrderStatus.LIVE,
-            is_simulated=True
+            is_simulated=True,
+            created_at=datetime.now(timezone.utc).isoformat(),
         )
 
         self.orders[order.id] = order

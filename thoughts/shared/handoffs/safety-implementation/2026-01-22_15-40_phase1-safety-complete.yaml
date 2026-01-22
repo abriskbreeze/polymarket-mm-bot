@@ -1,0 +1,61 @@
+---
+session: safety-implementation
+date: 2026-01-22
+status: complete
+outcome: SUCCEEDED
+---
+
+goal: Implement Phase 1 Safety features for live trading protection
+now: Run tests with pytest once environment is configured
+test: python3 -m pytest tests/test_safety.py -v
+
+done_this_session:
+  - task: Startup order cleanup - cancel orphaned orders on restart
+    files: [src/strategy/runner.py]
+  - task: Cancel-on-disconnect - cancel orders when WebSocket drops
+    files: [src/feed/websocket_conn.py, src/feed/feed.py, src/strategy/market_maker.py]
+  - task: Stale order cleanup - periodic check for orders older than 5 min
+    files: [src/strategy/market_maker.py, src/trading.py, src/simulator.py]
+  - task: Balance monitoring - pre-order check and periodic monitoring
+    files: [src/trading.py, src/strategy/market_maker.py]
+  - task: Safety tests for all features
+    files: [tests/test_safety.py]
+
+blockers: []
+
+questions: []
+
+decisions:
+  - stale_threshold_5min: Conservative threshold prevents accumulation without premature cancellation
+  - balance_50pct_limit: Prevents single order from using excessive capital
+  - balance_20pct_drop_alert: Triggers kill switch on significant losses
+
+findings:
+  - risk_manager_method: Method is kill_switch() not trigger_kill_switch()
+  - created_at_optional: Order.created_at is Optional[str], must check before parsing
+  - get_balances_returns: Returns usdc_allowance key, not USDC
+
+worked:
+  - Adding on_connection_lost callback separate from on_disconnect
+  - Caching balance checks to reduce API calls
+  - Using ISO format timestamps for cross-timezone compatibility
+
+failed: []
+
+next:
+  - Configure pytest environment to run tests
+  - Test in DRY_RUN mode with simulated disconnects
+  - Test in LIVE mode with $10 position limits
+  - Monitor for 24h before increasing limits
+
+files:
+  created:
+    - tests/test_safety.py
+    - thoughts/shared/handoffs/safety-implementation/2026-01-22_15-40_phase1-safety-complete.yaml
+  modified:
+    - src/strategy/runner.py
+    - src/feed/websocket_conn.py
+    - src/feed/feed.py
+    - src/strategy/market_maker.py
+    - src/trading.py
+    - src/simulator.py

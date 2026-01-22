@@ -11,9 +11,40 @@ from src.markets import fetch_active_markets
 from src.pricing import get_order_books
 from src.strategy.market_maker import SmartMarketMaker
 from src.strategy.market_scorer import MarketScorer
+from src.orders import get_open_orders
+from src.trading import cancel_all_orders
 from src.utils import setup_logging
 
 logger = setup_logging()
+
+
+def cleanup_orphaned_orders(token_id: str) -> int:
+    """
+    Cancel any existing orders for this token on startup.
+
+    This protects against orphaned orders from crashes.
+    Returns count of canceled orders, or -1 on error.
+    """
+    if DRY_RUN:
+        return 0  # Simulator has no persistence across restarts
+
+    logger.info(f"[SAFETY] Checking for orphaned orders on {token_id[:16]}...")
+
+    try:
+        orders = get_open_orders(token_id)
+        if not orders:
+            logger.info("[SAFETY] No orphaned orders found")
+            return 0
+
+        logger.warning(f"[SAFETY] Found {len(orders)} orphaned orders - canceling")
+        canceled = cancel_all_orders(token_id)
+        logger.info(f"[SAFETY] Canceled {canceled} orphaned orders")
+        return canceled
+
+    except Exception as e:
+        logger.error(f"[SAFETY] Failed to cleanup orders: {e}")
+        # Don't block startup, but warn
+        return -1
 
 
 async def log_status_periodically(mm: SmartMarketMaker, interval: float = 30.0):
@@ -205,6 +236,13 @@ def main():
             print(f"Market ends: {market_end_date.strftime('%Y-%m-%d %H:%M UTC')}")
         except (ValueError, AttributeError) as e:
             logger.warning(f"Could not parse market end_date: {e}")
+
+    # SAFETY: Clean up any orphaned orders before starting
+    orphaned = cleanup_orphaned_orders(token_id)
+    if orphaned > 0:
+        logger.warning(f"[SAFETY] Cleaned up {orphaned} orphaned orders before starting")
+    if orphaned < 0:
+        logger.error("[SAFETY] Could not verify order state - proceed with caution")
 
     # Run with auto-retry on CLOB failures
     max_retries = 3

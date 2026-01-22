@@ -92,11 +92,15 @@ class MarketFeed:
         # Flow analyzer callbacks (per token)
         self._flow_callbacks: Dict[str, List[Callable]] = {}
 
+        # Connection lost callback (for safety - cancel orders on disconnect)
+        self._connection_lost_callback: Optional[Callable[[], None]] = None
+
         # Wire up internal callbacks
         self._ws.on_message = self._handle_ws_message
         self._ws.on_connect = self._handle_ws_connect
         self._ws.on_disconnect = self._handle_ws_disconnect
         self._ws.on_max_retries = self._handle_max_retries
+        self._ws.on_connection_lost = self._handle_connection_lost
 
     # === Lifecycle ===
 
@@ -327,6 +331,19 @@ class MarketFeed:
         else:
             # No data source available
             self._set_state(FeedState.ERROR)
+
+    def _handle_connection_lost(self):
+        """Handle connection lost - fires BEFORE reconnect attempts."""
+        logger.warning("[SAFETY] Connection lost - triggering order cancellation callback")
+        if self._connection_lost_callback:
+            try:
+                self._connection_lost_callback()
+            except Exception as e:
+                logger.error(f"[SAFETY] Connection lost callback error: {e}")
+
+    def register_connection_lost_callback(self, callback: Callable[[], None]):
+        """Register callback to fire when connection is lost (for order safety)."""
+        self._connection_lost_callback = callback
 
     async def _process_queue(self):
         """Process messages from queue (async worker)."""
