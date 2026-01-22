@@ -6,6 +6,7 @@ Runs the market maker with live TUI display.
 
 import asyncio
 import signal
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
@@ -40,6 +41,7 @@ class TUIBotRunner:
         position_limit: float = 100.0,
         update_interval: float = 0.5,
         complement_token_id: Optional[str] = None,
+        market_end_date: Optional[datetime] = None,
     ):
         self.token_id = token_id
         self.market_question = market_question
@@ -48,6 +50,7 @@ class TUIBotRunner:
         self.position_limit = position_limit
         self.update_interval = update_interval
         self.complement_token_id = complement_token_id
+        self.market_end_date = market_end_date
 
         # Components
         self.feed: Optional[MarketFeed] = None
@@ -159,6 +162,7 @@ class TUIBotRunner:
             size=Decimal(str(self.size)),
             position_limit=Decimal(str(self.position_limit)),
             complement_token_id=self.complement_token_id,
+            market_end_date=self.market_end_date,
         )
 
         # State collector
@@ -200,6 +204,7 @@ async def run_with_tui(
     size: float = 10.0,
     position_limit: float = 100.0,
     complement_token_id: Optional[str] = None,
+    market_end_date: Optional[datetime] = None,
 ):
     """
     Convenience function to run bot with TUI.
@@ -211,6 +216,7 @@ async def run_with_tui(
         size: Quote size
         position_limit: Max position
         complement_token_id: Complement token ID for arbitrage detection
+        market_end_date: Market resolution date for event tracking
     """
     runner = TUIBotRunner(
         token_id=token_id,
@@ -219,5 +225,6 @@ async def run_with_tui(
         size=size,
         position_limit=position_limit,
         complement_token_id=complement_token_id,
+        market_end_date=market_end_date,
     )
     await runner.run()

@@ -207,6 +207,16 @@ def main():
         complement_token_id = [tid for tid in market.token_ids if tid != token_id][0]
         print(f"   Complement token: {complement_token_id[:20]}...")
 
+    # Get market end date for event tracking
+    market_end_date = None
+    if market and hasattr(market, 'end_date') and market.end_date:
+        from datetime import datetime
+        try:
+            market_end_date = datetime.fromisoformat(market.end_date.replace('Z', '+00:00'))
+            print(f"   Market ends: {market_end_date.strftime('%Y-%m-%d %H:%M UTC')}")
+        except (ValueError, AttributeError):
+            pass
+
     print(f"\n🚀 Starting TUI bot...")
     print(f"   Market Maker: SmartMarketMaker")
     print(f"   Spread: {args.spread}")
@@ -223,6 +233,7 @@ def main():
             size=args.size,
             position_limit=args.position_limit,
             complement_token_id=complement_token_id,
+            market_end_date=market_end_date,
         ))
     except KeyboardInterrupt:
         print("\nShutdown complete.")

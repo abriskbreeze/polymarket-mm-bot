@@ -6,6 +6,7 @@ SmartMarketMaker: Dynamic spread, inventory skewing, volatility-aware
 
 import asyncio
 import signal
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 from dataclasses import dataclass
@@ -106,6 +107,7 @@ class SmartMarketMaker:
         loop_interval: float = MM_LOOP_INTERVAL,
         skew_max: Decimal = INVENTORY_SKEW_MAX,
         complement_token_id: Optional[str] = None,
+        market_end_date: Optional[datetime] = None,
     ):
         self.token_id = token_id
         self.base_spread = base_spread
@@ -136,6 +138,14 @@ class SmartMarketMaker:
             window_seconds=FLOW_WINDOW_SECONDS,
         )
         self.event_tracker = EventTracker()
+
+        # Configure event tracker with market resolution time
+        if market_end_date:
+            self.event_tracker.set_market_metadata(token_id, {
+                'resolution_time': market_end_date.timestamp(),
+            })
+            hours_to_resolution = (market_end_date.timestamp() - datetime.now().timestamp()) / 3600
+            logger.info(f"Event tracker configured: {hours_to_resolution:.1f} hours to resolution")
 
         # Register YES/NO pair for arbitrage detection
         if self.complement_token_id:

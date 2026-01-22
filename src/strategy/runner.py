@@ -179,6 +179,17 @@ def main():
         complement_token_id = [tid for tid in market.token_ids if tid != token_id][0]
         print(f"Found complement token: {complement_token_id[:20]}...")
 
+    # Get market end date for event tracking
+    market_end_date = None
+    if hasattr(market, 'end_date') and market.end_date:
+        from datetime import datetime
+        try:
+            # Parse ISO format: 2026-02-01T20:00:00Z
+            market_end_date = datetime.fromisoformat(market.end_date.replace('Z', '+00:00'))
+            print(f"Market ends: {market_end_date.strftime('%Y-%m-%d %H:%M UTC')}")
+        except (ValueError, AttributeError) as e:
+            logger.warning(f"Could not parse market end_date: {e}")
+
     # Run
     mm = SmartMarketMaker(
         token_id=token_id,
@@ -186,6 +197,7 @@ def main():
         size=Decimal(str(args.size)),
         position_limit=Decimal(str(args.position_limit)),
         complement_token_id=complement_token_id,
+        market_end_date=market_end_date,
     )
 
     async def run_with_status():
