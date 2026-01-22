@@ -56,6 +56,16 @@ MM_LOOP_INTERVAL = float(os.getenv("MM_LOOP_INTERVAL", "1.0"))     # Seconds bet
 MARKET_MIN_VOLUME = float(os.getenv("MARKET_MIN_VOLUME", "10000"))    # Min 24h volume ($)
 MARKET_MIN_SPREAD = float(os.getenv("MARKET_MIN_SPREAD", "0.02"))     # Min spread (too tight = too competitive)
 MARKET_MAX_SPREAD = float(os.getenv("MARKET_MAX_SPREAD", "0.15"))     # Max spread (too wide = illiquid)
+MARKET_MIN_HOURS_TO_RESOLUTION = float(os.getenv("MARKET_MIN_HOURS_TO_RESOLUTION", "12"))
+MARKET_MIN_PRICE = float(os.getenv("MARKET_MIN_PRICE", "0.05"))       # Avoid extreme prices
+MARKET_MAX_PRICE = float(os.getenv("MARKET_MAX_PRICE", "0.95"))
+
+# Market Scoring Weights
+MARKET_SCORE_WEIGHT_VOLUME = float(os.getenv("MARKET_SCORE_WEIGHT_VOLUME", "0.30"))
+MARKET_SCORE_WEIGHT_SPREAD = float(os.getenv("MARKET_SCORE_WEIGHT_SPREAD", "0.35"))
+MARKET_SCORE_WEIGHT_DEPTH = float(os.getenv("MARKET_SCORE_WEIGHT_DEPTH", "0.15"))
+MARKET_SCORE_WEIGHT_TIMING = float(os.getenv("MARKET_SCORE_WEIGHT_TIMING", "0.10"))
+MARKET_SCORE_WEIGHT_PRICE = float(os.getenv("MARKET_SCORE_WEIGHT_PRICE", "0.10"))
 
 # Dynamic Spread
 SPREAD_MIN = Decimal(os.getenv("SPREAD_MIN", "0.02"))                 # Minimum spread (2 cents)
@@ -95,11 +105,17 @@ EVENT_RESOLUTION_WARNING_HOURS = int(os.getenv("EVENT_RESOLUTION_WARNING_HOURS",
 # Competitor Detection
 COMPETITOR_WINDOW_SIZE = int(os.getenv("COMPETITOR_WINDOW_SIZE", "1000"))
 COMPETITOR_BACK_OFF_THRESHOLD = Decimal(os.getenv("COMPETITOR_BACK_OFF_THRESHOLD", "5000"))
+COMPETITOR_SIZE_TOLERANCE = Decimal(os.getenv("COMPETITOR_SIZE_TOLERANCE", "0.1"))
+COMPETITOR_OFFSET_TOLERANCE = Decimal(os.getenv("COMPETITOR_OFFSET_TOLERANCE", "0.005"))
 
 # Regime Detection
 REGIME_WINDOW_SIZE = int(os.getenv("REGIME_WINDOW_SIZE", "50"))
 REGIME_HIGH_THRESHOLD = float(os.getenv("REGIME_HIGH_THRESHOLD", "0.7"))
 REGIME_LOW_THRESHOLD = float(os.getenv("REGIME_LOW_THRESHOLD", "0.3"))
+REGIME_CRISIS_THRESHOLD = float(os.getenv("REGIME_CRISIS_THRESHOLD", "0.1"))
+REGIME_SPREAD_WEIGHT = float(os.getenv("REGIME_SPREAD_WEIGHT", "0.3"))
+REGIME_DEPTH_WEIGHT = float(os.getenv("REGIME_DEPTH_WEIGHT", "0.4"))
+REGIME_VOLUME_WEIGHT = float(os.getenv("REGIME_VOLUME_WEIGHT", "0.3"))
 
 # Time Patterns
 TIME_PATTERN_HISTORY = int(os.getenv("TIME_PATTERN_HISTORY", "100"))
@@ -123,10 +139,14 @@ DYNAMIC_LIMIT_CEILING = Decimal(os.getenv("DYNAMIC_LIMIT_CEILING", "2.0"))
 # Adverse Selection
 ADVERSE_LOOKBACK_SECONDS = float(os.getenv("ADVERSE_LOOKBACK_SECONDS", "300"))
 ADVERSE_TOXIC_THRESHOLD = float(os.getenv("ADVERSE_TOXIC_THRESHOLD", "0.4"))
+ADVERSE_HIGHLY_TOXIC_THRESHOLD = float(os.getenv("ADVERSE_HIGHLY_TOXIC_THRESHOLD", "0.6"))
+ADVERSE_PRICE_THRESHOLD = Decimal(os.getenv("ADVERSE_PRICE_THRESHOLD", "0.005"))
+ADVERSE_OBSERVATION_WINDOW = float(os.getenv("ADVERSE_OBSERVATION_WINDOW", "10"))
 
 # Kelly Criterion
 KELLY_FRACTION = float(os.getenv("KELLY_FRACTION", "0.25"))
 KELLY_MAX_POSITION = float(os.getenv("KELLY_MAX_POSITION", "0.10"))
+KELLY_MIN_TRADES = int(os.getenv("KELLY_MIN_TRADES", "20"))
 
 # Correlation Risk
 CORRELATION_THRESHOLD = float(os.getenv("CORRELATION_THRESHOLD", "0.5"))

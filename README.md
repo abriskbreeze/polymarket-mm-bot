@@ -88,7 +88,7 @@ polymarket-mm-bot/
 │   │   └── mock.py            # Mock for testing
 │   ├── strategy/              # Trading strategies (Phase 7)
 │   │   ├── __init__.py
-│   │   ├── market_maker.py    # SimpleMarketMaker class
+│   │   ├── market_maker.py    # SmartMarketMaker class
 │   │   └── runner.py          # CLI runner
 │   └── risk/                  # Risk management (Phase 8)
 │       ├── __init__.py        # Public API exports

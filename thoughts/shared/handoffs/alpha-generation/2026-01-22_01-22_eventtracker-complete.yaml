@@ -1,0 +1,59 @@
+---
+session: alpha-generation
+date: 2026-01-22
+status: complete
+outcome: SUCCEEDED
+---
+
+goal: Complete Phase 1 alpha integration - all 3 modules fully operational
+now: Monitor alpha signals in live trading and tune thresholds
+
+test: source venv/bin/activate && (echo -e "\n7\n1\n" | timeout 15 python run_mm.py --manual 2>&1) | grep -E "(Event tracker|Trades poller|ARB)"
+
+done_this_session:
+  - task: Fixed trades poller startup bug (was only in REST fallback path)
+    files: [src/feed/feed.py]
+  - task: Completed EventTracker integration with market resolution time
+    files: [src/strategy/market_maker.py, src/strategy/runner.py, src/tui/runner.py, run_tui.py]
+  - task: Added datetime import and market_end_date parameter to SmartMarketMaker
+    files: [src/strategy/market_maker.py]
+  - task: Parse end_date from market object and pass through runners
+    files: [src/strategy/runner.py, run_tui.py]
+  - task: Committed and pushed all changes to GitHub
+    files: []
+
+blockers: []
+
+questions:
+  - What spread/size multipliers should EventTracker use near resolution?
+  - What flow imbalance thresholds work best in production?
+
+decisions:
+  - trades_poller_both_paths: Start trades poller in both WebSocket success AND REST fallback paths, since early return at line 135 was skipping it
+  - market_end_date_parsing: Parse ISO format (2026-02-01T20:00:00Z) using fromisoformat with Z replacement for UTC
+
+findings:
+  - trades_poller_bug: The startup code was only in REST fallback branch; WebSocket success returned early at line 135
+  - event_tracker_needs_timestamp: EventTracker.set_market_metadata() expects resolution_time as Unix timestamp
+  - alpha_modules_verified: All 3 modules logging correctly - ARB scans, trades poller starts, event tracker configured
+
+worked:
+  - Debug logging to diagnose trades poller startup failure
+  - Systematic verification with grep patterns on bot output
+  - Adding datetime.timestamp() for resolution_time conversion
+
+failed: []
+
+next:
+  - Monitor flow signals during active market hours
+  - Tune alpha thresholds based on real market behavior
+  - Consider adding more detailed alpha signal logging
+
+files:
+  created: []
+  modified:
+    - src/feed/feed.py
+    - src/strategy/market_maker.py
+    - src/strategy/runner.py
+    - src/tui/runner.py
+    - run_tui.py

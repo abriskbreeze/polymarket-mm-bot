@@ -28,10 +28,25 @@ from src.config import (
     RISK_MAX_TOTAL_EXPOSURE,
     RISK_ERROR_COOLDOWN,
     RISK_MAX_ERRORS_PER_MINUTE,
+    # Phase 3: Risk-Adjusted Returns
+    DYNAMIC_LIMIT_FLOOR,
+    DYNAMIC_LIMIT_CEILING,
+    ADVERSE_LOOKBACK_SECONDS,
+    ADVERSE_TOXIC_THRESHOLD,
+    KELLY_FRACTION,
+    KELLY_MAX_POSITION,
+    CORRELATION_THRESHOLD,
+    MAX_CORRELATED_EXPOSURE,
 )
 from src.orders import get_position, get_trades
 from src.trading import cancel_all_orders
 from src.utils import setup_logging
+
+# Phase 3 modules
+from src.risk.dynamic_limits import DynamicLimitManager, MarketConditions
+from src.risk.adverse_selection import AdverseSelectionDetector, AdverseSelectionResponse
+from src.risk.kelly import KellyCalculator
+from src.risk.correlation import CorrelationTracker, PortfolioRisk
 
 logger = setup_logging()
 
@@ -124,6 +139,34 @@ class RiskManager:
         # Unrealized P&L tracking
         self._entry_prices: Dict[str, Decimal] = {}  # token_id -> avg entry price
         self._unrealized_pnl: Decimal = Decimal("0")
+
+        # === Phase 3: Risk-Adjusted Returns ===
+        # Dynamic position limits
+        self._dynamic_limits = DynamicLimitManager(
+            base_limit=max_position,
+            max_daily_loss=max_daily_loss,
+            min_limit=max_position * DYNAMIC_LIMIT_FLOOR,
+            max_limit=max_position * DYNAMIC_LIMIT_CEILING,
+        )
+
+        # Adverse selection detection
+        self._adverse_detector = AdverseSelectionDetector(
+            lookback_window=ADVERSE_LOOKBACK_SECONDS
+        )
+        self._adverse_detector.TOXIC_THRESHOLD = ADVERSE_TOXIC_THRESHOLD
+
+        # Kelly criterion sizing
+        self._kelly = KellyCalculator(
+            fraction=KELLY_FRACTION,
+            max_position_pct=KELLY_MAX_POSITION,
+        )
+
+        # Correlation tracking
+        self._correlation_tracker = CorrelationTracker()
+        self._portfolio_risk = PortfolioRisk(
+            max_correlated_exposure=MAX_CORRELATED_EXPOSURE,
+            correlation_threshold=CORRELATION_THRESHOLD,
+        )
 
         logger.info(f"RiskManager initialized: enforce={enforce}")
 
@@ -308,7 +351,15 @@ class RiskManager:
             "price": float(price),
             "size": float(size),
             "fee": float(fee),
+            "pnl": float(realized_pnl) if realized_pnl else 0,
         })
+
+        # Feed to adverse selection detector
+        self._adverse_detector.record_fill(price, side, size)
+
+        # Feed to dynamic limits
+        if realized_pnl is not None:
+            self._dynamic_limits.record_pnl(realized_pnl)
 
         if realized_pnl is not None:
             # Subtract fee from realized P&L
@@ -451,11 +502,74 @@ class RiskManager:
         """Get total P&L (realized + unrealized)."""
         return self._daily_pnl + self._unrealized_pnl
 
+    # === Phase 3: Risk-Adjusted Returns Methods ===
+
+    def get_dynamic_limit(self) -> Decimal:
+        """Get current dynamic position limit."""
+        return self._dynamic_limits.get_limit()
+
+    def update_market_conditions(self, conditions: MarketConditions):
+        """Update market conditions for dynamic limits."""
+        self._dynamic_limits.set_conditions(conditions)
+
+    def get_adverse_selection_response(self) -> AdverseSelectionResponse:
+        """Get recommended response to adverse selection."""
+        return self._adverse_detector.get_response()
+
+    def record_price_after_fill(self, fill_id: int, price_after: Decimal):
+        """Record price movement after a fill for toxicity analysis."""
+        self._adverse_detector.record_price_after(fill_id, price_after)
+
+    def get_toxicity(self, side: Optional[str] = None) -> float:
+        """Get current fill toxicity score (0-1)."""
+        return self._adverse_detector.get_toxicity(side)
+
+    def get_kelly_size(
+        self,
+        win_rate: float,
+        win_loss_ratio: float,
+        price: Decimal,
+        bankroll: Optional[Decimal] = None,
+    ) -> Decimal:
+        """Get Kelly-optimal position size."""
+        if bankroll:
+            self._kelly.set_bankroll(bankroll)
+        return self._kelly.get_position_size(win_rate, win_loss_ratio, price)
+
+    def get_kelly_from_history(self) -> float:
+        """Calculate Kelly fraction from trade history."""
+        return self._kelly.calculate_from_trades(self._trades)
+
+    def record_market_price(self, market_id: str, price: float):
+        """Record price for correlation tracking."""
+        self._correlation_tracker.record_price(market_id, price)
+
+    def can_add_correlated_position(
+        self,
+        market: str,
+        size: Decimal,
+        existing_positions: Dict[str, Decimal],
+    ) -> bool:
+        """Check if position can be added within correlation limits."""
+        # Update correlations from tracker
+        for entry in self._correlation_tracker.get_all_correlations():
+            self._portfolio_risk.set_correlation(
+                entry.market_a, entry.market_b, entry.correlation
+            )
+        return self._portfolio_risk.can_add_position(market, size, existing_positions)
+
+    def get_portfolio_beta(self, positions: Dict[str, Decimal]) -> float:
+        """Get portfolio beta based on correlations."""
+        return self._portfolio_risk.calculate_portfolio_beta(positions)
+
     def get_status(self) -> Dict:
         """Get current risk status summary."""
         now = time.time()
         minute_ago = now - 60
         recent_errors = sum(1 for ts, _ in self._errors if ts > minute_ago)
+
+        # Get adverse selection response for status
+        adverse_response = self._adverse_detector.get_response()
 
         return {
             "mode": "ENFORCE" if self.enforce else "DATA_GATHER",
@@ -473,6 +587,15 @@ class RiskManager:
             "cooldown_remaining": max(0, int(self._cooldown_until - time.time())),
             "uptime_seconds": int(now - self._start_time),
             "risk_events_logged": len(self._risk_events),
+            # Phase 3: Risk-Adjusted Returns
+            "dynamic_limit": float(self._dynamic_limits.get_limit()),
+            "toxicity": self._adverse_detector.get_toxicity(),
+            "toxicity_buy": self._adverse_detector.get_toxicity("BUY"),
+            "toxicity_sell": self._adverse_detector.get_toxicity("SELL"),
+            "adverse_widen_spread": adverse_response.widen_spread,
+            "adverse_spread_mult": adverse_response.spread_multiplier,
+            "adverse_size_mult": adverse_response.size_multiplier,
+            "kelly_from_history": self.get_kelly_from_history(),
         }
 
 

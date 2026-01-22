@@ -168,6 +168,7 @@ class DataStore:
             timestamp=timestamp
         )
         data.update_timestamp()
+        self.record_message_received()  # Update heartbeat for REST fallback
 
     def update_price(self, token_id: str, price: float):
         """Update last price."""

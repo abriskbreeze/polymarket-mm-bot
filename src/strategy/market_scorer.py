@@ -18,6 +18,14 @@ from src.config import (
     MARKET_MIN_VOLUME,
     MARKET_MIN_SPREAD,
     MARKET_MAX_SPREAD,
+    MARKET_MIN_HOURS_TO_RESOLUTION,
+    MARKET_MIN_PRICE,
+    MARKET_MAX_PRICE,
+    MARKET_SCORE_WEIGHT_VOLUME,
+    MARKET_SCORE_WEIGHT_SPREAD,
+    MARKET_SCORE_WEIGHT_DEPTH,
+    MARKET_SCORE_WEIGHT_TIMING,
+    MARKET_SCORE_WEIGHT_PRICE,
 )
 from src.models import Market, OrderBook
 from src.utils import setup_logging
@@ -62,20 +70,20 @@ class MarketScorer:
         best = scores[0]  # Highest scoring market
     """
 
-    # Component weights (must sum to 1.0)
-    WEIGHT_VOLUME = 0.30
-    WEIGHT_SPREAD = 0.35
-    WEIGHT_DEPTH = 0.15
-    WEIGHT_TIMING = 0.10
-    WEIGHT_PRICE = 0.10
+    # Component weights (from config, must sum to 1.0)
+    WEIGHT_VOLUME = MARKET_SCORE_WEIGHT_VOLUME
+    WEIGHT_SPREAD = MARKET_SCORE_WEIGHT_SPREAD
+    WEIGHT_DEPTH = MARKET_SCORE_WEIGHT_DEPTH
+    WEIGHT_TIMING = MARKET_SCORE_WEIGHT_TIMING
+    WEIGHT_PRICE = MARKET_SCORE_WEIGHT_PRICE
 
-    # Rejection thresholds
-    MIN_VOLUME = MARKET_MIN_VOLUME        # $10k default
-    MIN_SPREAD = MARKET_MIN_SPREAD        # 2 cents
-    MAX_SPREAD = MARKET_MAX_SPREAD        # 15 cents
-    MIN_HOURS_TO_RESOLUTION = 12          # Don't trade too close to resolution
-    MIN_PRICE = 0.05                      # Avoid extreme prices
-    MAX_PRICE = 0.95
+    # Rejection thresholds (from config)
+    MIN_VOLUME = MARKET_MIN_VOLUME
+    MIN_SPREAD = MARKET_MIN_SPREAD
+    MAX_SPREAD = MARKET_MAX_SPREAD
+    MIN_HOURS_TO_RESOLUTION = MARKET_MIN_HOURS_TO_RESOLUTION
+    MIN_PRICE = MARKET_MIN_PRICE
+    MAX_PRICE = MARKET_MAX_PRICE
 
     # Optimal ranges for scoring
     OPTIMAL_SPREAD_MIN = 0.02  # 2 cents
@@ -139,9 +147,23 @@ class MarketScorer:
 
         # Extract data
         spread = order_book.spread or 0.0
-        mid_price = order_book.midpoint or 0.5
+        mid_price = order_book.midpoint
         bid_depth = self._calculate_depth(order_book.bids, within_cents=5)
         ask_depth = self._calculate_depth(order_book.asks, within_cents=5)
+
+        # Reject if no valid midpoint (don't default to 0.5 which bypasses price filter)
+        if mid_price is None:
+            return MarketScore(
+                token_id=token_id,
+                market_question=market.question,
+                total_score=0,
+                volume_score=0, spread_score=0, depth_score=0,
+                timing_score=0, price_score=0,
+                volume_24h=volume_24h, spread=spread,
+                bid_depth=bid_depth, ask_depth=ask_depth,
+                hours_to_resolution=None, mid_price=0,
+                rejected=True, reject_reason="No valid midpoint price"
+            )
         hours_to_resolution = self._hours_until_resolution(market.end_date)
 
         # Require minimum depth on both sides

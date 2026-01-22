@@ -9,6 +9,12 @@ from decimal import Decimal
 from typing import List, Dict, Optional
 from collections import defaultdict
 
+from src.config import (
+    COMPETITOR_WINDOW_SIZE,
+    COMPETITOR_SIZE_TOLERANCE,
+    COMPETITOR_OFFSET_TOLERANCE,
+)
+
 
 @dataclass
 class OrderPattern:
@@ -58,11 +64,11 @@ class CompetitorDetector:
         response = detector.get_strategy_response()
     """
 
-    # Clustering thresholds
-    SIZE_TOLERANCE = Decimal("0.1")  # 10% size variation = same MM
-    OFFSET_TOLERANCE = Decimal("0.005")  # 0.5c offset variation
+    # Clustering thresholds (from config)
+    SIZE_TOLERANCE = COMPETITOR_SIZE_TOLERANCE
+    OFFSET_TOLERANCE = COMPETITOR_OFFSET_TOLERANCE
 
-    def __init__(self, window_size: int = 1000):
+    def __init__(self, window_size: int = COMPETITOR_WINDOW_SIZE):
         self.window_size = window_size
         self._orders: List[dict] = []
         self._patterns: List[OrderPattern] = []

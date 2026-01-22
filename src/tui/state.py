@@ -199,7 +199,7 @@ class BotState:
     # Feed
     feed: FeedState = field(default_factory=FeedState)
 
-    # Smart MM state (None if using SimpleMarketMaker)
+    # Smart MM state
     smart_mm: Optional[SmartMMState] = None
 
     # Recent activity

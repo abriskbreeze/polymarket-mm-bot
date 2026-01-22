@@ -10,6 +10,16 @@ from typing import List, Optional
 from enum import Enum
 from collections import deque
 
+from src.config import (
+    REGIME_WINDOW_SIZE,
+    REGIME_HIGH_THRESHOLD,
+    REGIME_LOW_THRESHOLD,
+    REGIME_CRISIS_THRESHOLD,
+    REGIME_SPREAD_WEIGHT,
+    REGIME_DEPTH_WEIGHT,
+    REGIME_VOLUME_WEIGHT,
+)
+
 
 class LiquidityRegime(Enum):
     HIGH = "high"
@@ -66,17 +76,17 @@ class RegimeDetector:
         adj = detector.get_strategy_adjustment()
     """
 
-    # Thresholds for regime classification
-    HIGH_LIQUIDITY_SCORE = 0.7
-    LOW_LIQUIDITY_SCORE = 0.3
-    CRISIS_SCORE = 0.1
+    # Thresholds for regime classification (from config)
+    HIGH_LIQUIDITY_SCORE = REGIME_HIGH_THRESHOLD
+    LOW_LIQUIDITY_SCORE = REGIME_LOW_THRESHOLD
+    CRISIS_SCORE = REGIME_CRISIS_THRESHOLD
 
-    # Scoring weights
-    SPREAD_WEIGHT = 0.3
-    DEPTH_WEIGHT = 0.4
-    VOLUME_WEIGHT = 0.3
+    # Scoring weights (from config)
+    SPREAD_WEIGHT = REGIME_SPREAD_WEIGHT
+    DEPTH_WEIGHT = REGIME_DEPTH_WEIGHT
+    VOLUME_WEIGHT = REGIME_VOLUME_WEIGHT
 
-    def __init__(self, window_size: int = 50):
+    def __init__(self, window_size: int = REGIME_WINDOW_SIZE):
         self.window_size = window_size
         self._snapshots: deque = deque(maxlen=window_size)
         self._regime_history: List[LiquidityRegime] = []
