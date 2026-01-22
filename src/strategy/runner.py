@@ -48,6 +48,22 @@ def auto_select_market():
     token_ids = [m.token_ids[0] for m in valid_markets]
     books = get_order_books(token_ids)
 
+    # Filter out markets where CLOB returned None/404
+    markets_with_books = []
+    for m in valid_markets:
+        token_id = m.token_ids[0]
+        book = books.get(token_id)
+        if book is not None:
+            markets_with_books.append(m)
+        else:
+            print(f"  Skipping {m.question[:40]}... - no CLOB order book")
+
+    if not markets_with_books:
+        print("No markets with active CLOB order books found!")
+        return None, None
+
+    valid_markets = markets_with_books
+
     # Build scoring input
     scorer = MarketScorer()
     score_input = []
@@ -190,32 +206,60 @@ def main():
         except (ValueError, AttributeError) as e:
             logger.warning(f"Could not parse market end_date: {e}")
 
-    # Run
-    mm = SmartMarketMaker(
-        token_id=token_id,
-        base_spread=Decimal(str(args.spread)),
-        size=Decimal(str(args.size)),
-        position_limit=Decimal(str(args.position_limit)),
-        complement_token_id=complement_token_id,
-        market_end_date=market_end_date,
-    )
+    # Run with auto-retry on CLOB failures
+    max_retries = 3
+    tried_tokens = set()
 
-    async def run_with_status():
-        """Run market maker with periodic status updates."""
-        status_task = asyncio.create_task(log_status_periodically(mm))
-        try:
-            await mm.run()
-        finally:
-            status_task.cancel()
+    for attempt in range(max_retries):
+        tried_tokens.add(token_id)
+
+        mm = SmartMarketMaker(
+            token_id=token_id,
+            base_spread=Decimal(str(args.spread)),
+            size=Decimal(str(args.size)),
+            position_limit=Decimal(str(args.position_limit)),
+            complement_token_id=complement_token_id,
+            market_end_date=market_end_date,
+        )
+
+        async def run_with_status():
+            """Run market maker with periodic status updates."""
+            status_task = asyncio.create_task(log_status_periodically(mm))
             try:
-                await status_task
-            except asyncio.CancelledError:
-                pass
+                await mm.run()
+            finally:
+                status_task.cancel()
+                try:
+                    await status_task
+                except asyncio.CancelledError:
+                    pass
 
-    try:
-        asyncio.run(run_with_status())
-    except KeyboardInterrupt:
-        print("\nInterrupted.")
+        try:
+            asyncio.run(run_with_status())
+            break  # Normal exit
+        except KeyboardInterrupt:
+            print("\nInterrupted.")
+            break
+        except RuntimeError as e:
+            if "CLOB" in str(e) and attempt < max_retries - 1:
+                print(f"\n⚠️  Market unavailable on CLOB. Auto-selecting new market...")
+                market, score = auto_select_market()
+                if not market or market.token_ids[0] in tried_tokens:
+                    print("No other suitable markets found. Exiting.")
+                    break
+                token_id = market.token_ids[0]
+                complement_token_id = None
+                if len(market.token_ids) == 2:
+                    complement_token_id = [t for t in market.token_ids if t != token_id][0]
+                market_end_date = None
+                if hasattr(market, 'end_date') and market.end_date:
+                    try:
+                        market_end_date = datetime.fromisoformat(market.end_date.replace('Z', '+00:00'))
+                    except (ValueError, AttributeError):
+                        pass
+                print(f"Retrying with: {market.question[:50]}...\n")
+            else:
+                raise
 
 
 if __name__ == "__main__":

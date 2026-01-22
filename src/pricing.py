@@ -74,7 +74,11 @@ def get_order_book(token_id: str) -> Optional[OrderBook]:
         result = client.get_order_book(token_id)
         return _parse_order_book(token_id, result)
     except Exception as e:
-        logger.error(f"Error fetching order book for {token_id}: {e}")
+        error_str = str(e)
+        if "404" in error_str or "No orderbook exists" in error_str:
+            logger.warning(f"No CLOB order book for {token_id[:16]}... - market may not be active")
+        else:
+            logger.error(f"Error fetching order book for {token_id}: {e}")
         return None
 
 

@@ -1,0 +1,56 @@
+---
+session: alpha-generation
+date: 2026-01-22
+status: complete
+outcome: SUCCEEDED
+---
+
+goal: Fix timeout waiting for market data when CLOB returns 404
+now: Monitor auto-retry behavior in live trading
+
+test: source venv/bin/activate && python -m pytest tests/ -v
+
+done_this_session:
+  - task: Filter markets without CLOB books in auto_select_market()
+    files: [src/strategy/runner.py]
+  - task: Add _bootstrap_failed flag when REST bootstrap finds no CLOB data
+    files: [src/strategy/market_maker.py]
+  - task: Fail fast in _wait_for_data() instead of timing out
+    files: [src/strategy/market_maker.py]
+  - task: Improve 404 error handling with specific warning message
+    files: [src/pricing.py]
+  - task: Add auto-retry with up to 3 market attempts on CLOB failures
+    files: [src/strategy/runner.py]
+
+blockers: []
+
+questions:
+  - Should auto-retry also work for manual market selection?
+  - What happens if all top 50 markets lack CLOB books?
+
+decisions:
+  - retry_limit_3: Chose 3 retries as balance between resilience and avoiding infinite loops
+  - fail_fast_over_timeout: Better to fail immediately with clear message than wait 10s and timeout
+
+findings:
+  - clob_404_cause: Some GAMMA markets not activated on CLOB, or delisted/migrated
+  - bootstrap_silent_fail: Original code only logged warning, didn't signal failure to wait loop
+
+worked:
+  - Checking for None from get_order_book before scoring
+  - Setting _bootstrap_failed flag and checking in wait loop
+  - Tracking tried_tokens to avoid retrying same market
+
+failed: []
+
+next:
+  - Monitor auto-retry behavior in production
+  - Consider adding market blacklist for persistent CLOB failures
+  - Add metrics for CLOB availability rate
+
+files:
+  created: []
+  modified:
+    - src/strategy/runner.py
+    - src/strategy/market_maker.py
+    - src/pricing.py

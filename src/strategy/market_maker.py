@@ -28,11 +28,14 @@ from src.config import (
     TIMING_VOL_THRESHOLD,
     TIMING_INACTIVITY_THRESHOLD,
     TIMING_FAST_MODE_DURATION,
+    MARKET_MIN_PRICE,
+    MARKET_MAX_PRICE,
 )
 from src.models import Order, OrderSide
 from src.trading import place_order, cancel_order, cancel_all_orders, OrderError
 from src.orders import get_open_orders, get_position
 from src.feed import MarketFeed
+from src.pricing import get_order_book
 from src.risk import RiskManager, RiskStatus, get_risk_manager
 from src.simulator import get_simulator
 from src.utils import setup_logging
@@ -196,6 +199,7 @@ class SmartMarketMaker:
         self.risk = get_risk_manager()
         self._loop_count = 0
         self._last_heartbeat = 0.0
+        self._last_competitor_reason: str = ""  # Track to avoid log spam
 
         # Computed values (for TUI display)
         self._last_state: Optional[SmartMMState] = None
@@ -274,19 +278,91 @@ class SmartMarketMaker:
         self.stop()
 
     async def _wait_for_data(self, timeout: float = 10.0):
-        """Wait for feed to have data."""
+        """Wait for feed to have data, bootstrapping via REST if needed."""
         logger.info("Waiting for market data...")
         start = asyncio.get_event_loop().time()
+        bootstrapped = False
 
         while asyncio.get_event_loop().time() - start < timeout:
-            if self.feed and self.feed.is_healthy:
+            if self.feed:
                 mid = self.feed.get_midpoint(self.token_id)
-                if mid is not None:
+                is_healthy = self.feed.is_healthy
+
+                # Debug: log why we're not ready
+                if not is_healthy or mid is None:
+                    elapsed = asyncio.get_event_loop().time() - start
+                    if int(elapsed) % 5 == 0 and elapsed > 0:  # Log every 5 seconds
+                        book = self.feed.get_order_book(self.token_id)
+                        has_bids = bool(book and book.bids) if book else False
+                        has_asks = bool(book and book.asks) if book else False
+                        logger.debug(
+                            f"Waiting: healthy={is_healthy}, mid={mid}, "
+                            f"has_bids={has_bids}, has_asks={has_asks}, "
+                            f"state={self.feed.state.name}, "
+                            f"all_fresh={self.feed._data_store.all_fresh()}"
+                        )
+
+                if is_healthy and mid is not None:
                     logger.info(f"Got initial mid: {mid}")
+                    # Runtime price check - reject extreme prices
+                    if mid < MARKET_MIN_PRICE:
+                        raise RuntimeError(
+                            f"Price too low for safe MM: {mid:.4f} < {MARKET_MIN_PRICE:.2f}. "
+                            f"Select a market with mid price between {MARKET_MIN_PRICE:.0%} and {MARKET_MAX_PRICE:.0%}."
+                        )
+                    if mid > MARKET_MAX_PRICE:
+                        raise RuntimeError(
+                            f"Price too high for safe MM: {mid:.4f} > {MARKET_MAX_PRICE:.2f}. "
+                            f"Select a market with mid price between {MARKET_MIN_PRICE:.0%} and {MARKET_MAX_PRICE:.0%}."
+                        )
                     return
+
+            # Bootstrap via REST if no WS data after 3 seconds
+            elapsed = asyncio.get_event_loop().time() - start
+            if not bootstrapped and elapsed > 3.0:
+                logger.info("No WS data yet, bootstrapping via REST...")
+                await self._bootstrap_order_books()
+                bootstrapped = True
+
+                # Fail fast if bootstrap found no CLOB data
+                if getattr(self, '_bootstrap_failed', False):
+                    raise RuntimeError(
+                        "Market not available on CLOB. Select a different market."
+                    )
+
             await asyncio.sleep(0.5)
 
         raise RuntimeError("Timeout waiting for market data")
+
+    async def _bootstrap_order_books(self):
+        """Fetch initial order book data via REST API."""
+        tokens = [self.token_id]
+        if self.complement_token_id:
+            tokens.append(self.complement_token_id)
+
+        loop = asyncio.get_event_loop()
+        bootstrapped_any = False
+        for token_id in tokens:
+            try:
+                book = await loop.run_in_executor(None, get_order_book, token_id)
+                if book is None:
+                    logger.error(
+                        f"No CLOB order book for {token_id[:16]}... - market may not be active on CLOB"
+                    )
+                    continue
+                if self.feed:
+                    self.feed._data_store.update_book(
+                        token_id,
+                        [{'price': str(b.price), 'size': str(b.size)} for b in book.bids],
+                        [{'price': str(a.price), 'size': str(a.size)} for a in book.asks]
+                    )
+                    logger.info(f"Bootstrapped order book for {token_id[:16]}...")
+                    bootstrapped_any = True
+            except Exception as e:
+                logger.warning(f"Failed to bootstrap {token_id[:16]}...: {e}")
+
+        # Set flag if primary token has no CLOB data
+        self._bootstrap_failed = not bootstrapped_any
 
     async def _loop_iteration(self):
         """Single iteration of the smart market making loop."""
@@ -582,8 +658,15 @@ class SmartMarketMaker:
         # Competitor response - widen if facing large aggressive competitor
         comp_response = self.competitor_detector.get_strategy_response()
         if not comp_response.should_compete:
-            logger.info(f"[COMPETITOR] {comp_response.reason}")
+            # Only log on state change to avoid spam
+            if comp_response.reason != self._last_competitor_reason:
+                logger.info(f"[COMPETITOR] {comp_response.reason}")
+                self._last_competitor_reason = comp_response.reason
             spread = spread * Decimal(str(comp_response.spread_multiplier))
+        elif self._last_competitor_reason:
+            # Log when returning to normal
+            logger.info("[COMPETITOR] Returning to normal competition")
+            self._last_competitor_reason = ""
 
         # Regime adjustment - adapt to liquidity conditions
         regime_adj = self.regime_detector.get_strategy_adjustment()
