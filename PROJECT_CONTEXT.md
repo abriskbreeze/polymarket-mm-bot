@@ -1,249 +1,228 @@
-# Polymarket Trading Bot - Project Context
+# Polymarket MM Bot - Developer Context
 
-## Project Overview
+This document provides deep technical context for developers working on this codebase.
 
-Building a market-making bot for Polymarket prediction markets. The bot will:
-1. Provide two-sided liquidity (bid/ask quotes)
-2. Capture spread + earn liquidity rewards
-3. Auto-manage risk and inventory
-4. Optionally detect arbitrage opportunities
-
-**Strategy**: Spread-capturing market maker with liquidity mining rewards
-
-**Revenue Model**: Spread Capture + Liquidity Rewards - Adverse Selection
-
----
-
-## Key Polymarket API Information
-
-### API Endpoints
-
-| API | Base URL | Purpose |
-|-----|----------|---------|
-| Gamma API | `https://gamma-api.polymarket.com` | Market metadata, events, search |
-| CLOB API | `https://clob.polymarket.com` | Order books, pricing, trading |
-| Data API | `https://data-api.polymarket.com` | Positions, trades, activity |
-| WebSocket | `wss://ws-subscriptions-clob.polymarket.com/ws/market` | Real-time updates |
-
-### Rate Limits
-
-| Endpoint | Limit |
-|----------|-------|
-| CLOB POST /order | 240/s burst, 40/s sustained |
-| CLOB DELETE /order | 240/s burst, 40/s sustained |
-| CLOB /book | 200 req/10s |
-| Gamma /markets | 125 req/10s |
-| Data API | 200 req/10s |
-
-### Order Types
-
-| Type | Use Case |
-|------|----------|
-| GTC (Good Till Cancelled) | Default for passive quoting |
-| GTD (Good Till Date) | Auto-expire before events |
-| FOK (Fill or Kill) | All or nothing rebalancing |
-| FAK (Fill and Kill) | Partial fills acceptable |
-
-### Fee Structure
-- **0% maker fees**
-- **0% taker fees**
-- Keep full spread!
-
-### Liquidity Rewards
-- Formula rewards two-sided depth, spread vs mid, participation
-- Max spread and min size cutoff per market
-- Daily payouts at ~midnight UTC
-- Minimum $1 payout threshold
-
----
-
-## Development Plan - 10 Phases
-
-### Phase 1: Environment & Connectivity ✅ COMPLETED
-- Project structure setup
-- Dependencies: py-clob-client, python-dotenv, websockets, pandas, pytest
-- Config management with environment variables
-- Basic CLOB client wrapper
-- **6 tests passing**
-
-### Phase 2: Market Discovery & Data Fetching ✅ COMPLETED
-- Data models: PriceLevel, OrderBook, Market, Outcome, Event
-- Gamma API integration for market discovery
-- CLOB pricing functions
-- **11 tests passing**
-
-### Phase 3: WebSocket Real-Time Data ✅ COMPLETED (Original)
-- Basic WebSocket client
-- Market channel subscriptions
-- Callbacks for price/book/trade updates
-- Simple reconnection logic
-- **12 tests passing**
-
-### Phase 3.5: WebSocket Hardening (Simplified) ✅ COMPLETED
-- Simple 4-state machine: STOPPED → STARTING → RUNNING → ERROR
-- Single `MarketFeed` class with clean API
-- Internal: async queue, sequence tracking, REST fallback (hidden)
-- `is_healthy` property for market maker to check
-- Mock feed for offline testing
-- **15 focused tests**
-
-### Phase 4: Authentication & Wallet Setup ✅ COMPLETED
-- Credential loading from `.env`
-- `get_auth_client()` for authenticated operations
-- `verify_setup()` to check wallet is ready
-- **14 tests**
-
-### Phase 5: Order Management (Read) ⏳ CURRENT
-- Order/Trade data models
-- `get_orders()`, `get_open_orders()`, `get_trades()`
-- `get_order_summary()` for quick status
-- **12 tests**
-- Wallet creation (separate from personal wallet)
-- Fund with MATIC (gas) and USDC.e (trading)
-- Secure credential management
-- API credentials: create_or_derive_api_creds(), set_api_creds()
-- Allowance management for Exchange contract
-- **Estimated: 1-2 hours**
-
-### Phase 5: Order Management Read Operations
-- orders.py: get_order, get_open_orders, get_trades
-- Order data models (Order, Trade, OrderStatus enum)
-- User WebSocket channel for order/trade events
-- Local order cache and status tracking
-- **Estimated: 2-3 hours**
-
-### Phase 6: Order Placement & Cancellation
-⚠️ Start with tiny sizes ($1-5)
-- build_limit_order, build_market_order
-- create_and_post_order, post_orders (batch)
-- cancel_order, cancel_orders, cancel_all
-- Safety checks: max size, price sanity, rate limits
-- Tick size validation
-- **Estimated: 3-4 hours**
-
-### Phase 7: Market Making Core Logic
-- strategy/market_maker.py: MarketMaker class
-- Quote calculation (bid/ask from mid, spread)
-- Two-sided quote management
-- Inventory awareness and skewing
-- Update on price movement (threshold-based)
-- Graceful shutdown (cancel all on exit)
-- **Estimated: 4-6 hours**
-
-### Phase 8: Risk Management
-- risk/manager.py: RiskManager class
-- Position limits (per-market, total exposure)
-- Kill switches (manual, auto on error/loss/connectivity)
-- Pre-trade validation
-- Market event detection (approaching resolution, volume spikes)
-- P&L tracking and alerts
-- **Estimated: 3-4 hours**
-
-### Phase 9: Arbitrage Detection (Optional)
-- strategy/arbitrage.py: ArbitrageScanner
-- YES/NO arbitrage (sum != 1.00)
-- Cross-market arbitrage (related markets)
-- Atomic execution (batch orders)
-- Opportunity logging and hit rate tracking
-- **Estimated: 3-4 hours**
-
-### Phase 10: Production Hardening
-- Structured logging (JSON, rotation)
-- systemd service or Docker container
-- Graceful shutdown (SIGTERM handler)
-- State persistence and recovery
-- Operational runbooks
-- Performance optimization
-- Monitoring dashboard
-- **Estimated: 4-6 hours**
-
-**Total Estimated Time: 30-40 hours**
-
----
-
-## Current File Structure
+## System Overview
 
 ```
-polymarket-bot/
-├── .env                    # Environment variables (gitignored)
-├── .env.example            # Template for env vars
-├── requirements.txt        # Python dependencies
-├── pytest.ini              # Pytest configuration
-│
-├── src/
-│   ├── __init__.py
-│   ├── config.py           # Configuration from env vars
-│   ├── client.py           # CLOB client wrapper (singleton)
-│   ├── utils.py            # Logging, timestamp helpers
-│   ├── models.py           # Data models (PriceLevel, OrderBook, Market, etc.)
-│   ├── markets.py          # Gamma API - market discovery
-│   ├── pricing.py          # CLOB API - order books, pricing
-│   │
-│   └── feed/               # NEW in Phase 3.5 (simplified)
-│       ├── __init__.py     # Exports: MarketFeed, FeedState
-│       ├── feed.py         # Main MarketFeed class (public API)
-│       ├── websocket_conn.py   # WebSocket connection (internal)
-│       ├── rest_poller.py  # REST fallback (internal)
-│       ├── data_store.py   # Local data storage (internal)
-│       └── mock.py         # Mock for testing
-│
-├── tests/
-│   ├── __init__.py
-│   ├── test_phase1.py      # 6 tests
-│   ├── test_phase2.py      # 11 tests
-│   ├── test_phase3.py      # 12 tests (original WebSocket)
-│   └── test_phase3_5.py    # 15 tests (simplified feed)
-│
-└── venv/                   # Virtual environment
+                          ┌─────────────────────────────────────────────────────────┐
+                          │                    SmartMarketMaker                      │
+                          │  - Quote calculation (spread, skew, size)                │
+                          │  - Order lifecycle management                            │
+                          │  - Integration point for all signals                     │
+                          └───────────────────────┬─────────────────────────────────┘
+                                                  │
+          ┌───────────────────────────────────────┼───────────────────────────────────────┐
+          │                                       │                                       │
+          ▼                                       ▼                                       ▼
+┌─────────────────────┐              ┌─────────────────────┐              ┌─────────────────────┐
+│     MarketFeed      │              │     RiskManager     │              │   Alpha Signals     │
+│  - WebSocket data   │              │  - Position limits  │              │  - Arbitrage        │
+│  - REST fallback    │              │  - Daily P&L        │              │  - Flow analysis    │
+│  - Health tracking  │              │  - Kill switch      │              │  - Competitors      │
+└─────────────────────┘              │  - Kelly sizing     │              │  - Regime detection │
+                                     │  - Adverse select.  │              └─────────────────────┘
+                                     └─────────────────────┘
 ```
 
----
+## Core Components
 
-## Key Configuration Values
+### SmartMarketMaker (`src/strategy/market_maker.py`)
 
+The central strategy class that coordinates all components.
+
+**Key Methods:**
+- `run()` - Main async loop, handles signals, manages lifecycle
+- `_calculate_quotes()` - Compute bid/ask prices with all adjustments
+- `_update_quotes()` - Place/cancel orders as needed
+- `_should_requote()` - Determine if quotes need updating
+
+**State (`SmartMMState`):**
 ```python
-# config.py current values
-
-# CLOB API
-CLOB_API_URL = "https://clob.polymarket.com"
-CLOB_API_KEY = os.getenv("CLOB_API_KEY")  # Optional for read-only
-
-# Gamma API  
-GAMMA_API_URL = "https://gamma-api.polymarket.com"
-
-# Chain
-CHAIN_ID = 137  # Polygon mainnet
-
-# WebSocket
-WS_MARKET_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
-WS_RECONNECT_ATTEMPTS = 10
-WS_RECONNECT_BASE_DELAY = 1.0
-WS_RECONNECT_MAX_DELAY = 60.0
-WS_HEARTBEAT_INTERVAL = 30.0
-WS_STALE_DATA_THRESHOLD = 60.0
+@dataclass
+class SmartMMState:
+    running: bool
+    token_id: str
+    position: Decimal
+    bid_order_id: Optional[str]
+    ask_order_id: Optional[str]
+    current_bid: Optional[Decimal]
+    current_ask: Optional[Decimal]
+    last_mid: Optional[Decimal]
+    vol_multiplier: float
+    inventory_skew: Decimal
+    timing_mode: str
 ```
 
----
+### MarketFeed (`src/feed/feed.py`)
+
+Provides real-time market data with automatic failover.
+
+**State Machine:**
+```
+STOPPED → STARTING → RUNNING → ERROR
+                  ↑          ↓
+                  └──────────┘ (via reset())
+```
+
+**Key Properties:**
+- `is_healthy` - Safe to trade on this data?
+- `data_source` - "websocket", "rest", or "none"
+- `state` - FeedState enum
+
+**Usage Pattern:**
+```python
+feed = MarketFeed()
+await feed.start(["token_id_1", "token_id_2"])
+
+if feed.is_healthy:
+    mid = feed.get_midpoint("token_id_1")
+    # Place quotes...
+else:
+    # Cancel all quotes, wait for recovery
+```
+
+### RiskManager (`src/risk/manager.py`)
+
+Central risk control with multiple sub-systems.
+
+**Sub-components:**
+- `DynamicLimitManager` - Adjusts limits based on P&L
+- `AdverseSelectionDetector` - Tracks toxic flow
+- `KellyCalculator` - Optimal position sizing
+- `CorrelationTracker` - Cross-market risk
+
+**Key Methods:**
+```python
+risk = get_risk_manager()
+
+# Pre-trade check
+status = risk.check()
+if status != RiskStatus.OK:
+    # Log and potentially skip order
+
+# Record activity
+risk.record_trade(token_id, side, size, price)
+risk.record_error()
+
+# Emergency controls
+risk.kill_switch()  # Halt all trading
+risk.is_killed      # Check kill status
+```
+
+### Order Simulator (`src/simulator.py`)
+
+Simulates order matching in DRY_RUN mode.
+
+**Behavior:**
+- Maintains virtual order book per token
+- Matches orders based on price/time priority
+- Simulates partial fills
+- Tracks virtual positions and P&L
+
+**Usage:**
+```python
+sim = get_simulator()
+
+# Place simulated order
+order = sim.place_order(token_id, side, price, size)
+
+# Check for fills
+fills = sim.process_fills(token_id, current_book)
+
+# Query state
+position = sim.get_position(token_id)
+orders = sim.get_open_orders(token_id)
+```
+
+## Alpha Generation
+
+### ArbitrageDetector (`src/alpha/arbitrage.py`)
+
+Detects YES/NO parity mispricing.
+
+**Signal:**
+```python
+@dataclass
+class ArbitrageSignal:
+    type: ArbitrageType  # PARITY or NONE
+    profit_bps: int
+    direction: str  # "buy_yes" or "buy_no"
+    is_actionable: bool
+```
+
+**Usage:**
+```python
+detector = ArbitrageDetector(min_profit_bps=ARB_MIN_PROFIT_BPS)
+detector.register_pair(yes_token, no_token, "market-slug")
+
+signal = detector.check_pair(yes_mid, no_mid, "market-slug")
+if signal.is_actionable:
+    # Adjust quotes or execute arb
+```
+
+### FlowAnalyzer (`src/alpha/flow_signals.py`)
+
+Analyzes order flow for informed trading detection.
+
+**Signal:**
+```python
+class FlowSignal(Enum):
+    NEUTRAL = "neutral"
+    BULLISH = "bullish"   # Aggressive buying
+    BEARISH = "bearish"   # Aggressive selling
+```
+
+**Usage:**
+```python
+analyzer = FlowAnalyzer(window_seconds=60)
+analyzer.record_trade(side="buy", size=100, is_aggressive=True)
+
+state = analyzer.get_state()
+# state.signal, state.imbalance_ratio, state.recommended_skew
+```
+
+### CompetitorDetector (`src/alpha/competitors.py`)
+
+Detects competitor market makers from order patterns.
+
+**Response:**
+```python
+@dataclass
+class StrategyResponse:
+    should_back_off: bool
+    spread_multiplier: float
+    size_multiplier: float
+    reason: str
+```
+
+### RegimeDetector (`src/alpha/regime.py`)
+
+Classifies market liquidity conditions.
+
+**Regimes:**
+- `HIGH_LIQUIDITY` - Tight spreads, deep books
+- `NORMAL` - Typical conditions
+- `LOW_LIQUIDITY` - Wide spreads, thin books
+- `CRISIS` - Severely stressed markets
 
 ## Data Models
 
-### PriceLevel
+### Core Models (`src/models.py`)
+
 ```python
 @dataclass
 class PriceLevel:
     price: float
     size: float
-```
 
-### OrderBook
-```python
 @dataclass
 class OrderBook:
     token_id: str
     bids: List[PriceLevel]
     asks: List[PriceLevel]
     timestamp: Optional[str] = None
-    
+
     @property
     def best_bid(self) -> Optional[float]
     @property
@@ -252,17 +231,25 @@ class OrderBook:
     def midpoint(self) -> Optional[float]
     @property
     def spread(self) -> Optional[float]
-```
 
-### Market
-```python
+@dataclass
+class Order:
+    id: str
+    token_id: str
+    side: OrderSide
+    price: Decimal
+    size: Decimal
+    status: OrderStatus
+    filled_size: Decimal = Decimal("0")
+    created_at: Optional[str] = None
+
 @dataclass
 class Market:
     id: str
     question: str
     condition_id: str
     slug: str
-    status: str  # "active", "resolved", etc.
+    status: str
     outcomes: List[Outcome]
     token_ids: List[str]
     end_date: Optional[str] = None
@@ -270,181 +257,251 @@ class Market:
     liquidity: float = 0.0
 ```
 
-### TokenData (Phase 3.5 - internal)
+## Configuration System
+
+All configuration via environment variables in `src/config.py`.
+
+**Categories:**
+1. **Network**: `CHAIN_ID`, API URLs
+2. **Authentication**: `POLY_*` credentials
+3. **WebSocket**: Reconnection, heartbeat settings
+4. **Trading**: `DRY_RUN`, position limits, order sizes
+5. **Market Making**: Spread, requote threshold, timing
+6. **Market Selection**: Volume, spread, price filters
+7. **Alpha**: Arbitrage, flow, competitor, regime settings
+8. **Risk**: Loss limits, Kelly, adverse selection
+
+**Pattern:**
 ```python
-@dataclass
-class TokenData:
-    token_id: str
-    order_book: Optional[OrderBook] = None
-    last_price: Optional[float] = None
-    last_trade_price: Optional[float] = None
-    last_trade_side: Optional[str] = None
-    last_trade_size: Optional[float] = None
-    last_update: float = 0.0
+# Decimal for money
+RISK_MAX_DAILY_LOSS = Decimal(os.getenv("RISK_MAX_DAILY_LOSS", "50"))
+
+# Float for multipliers/thresholds
+VOL_MULT_MAX = float(os.getenv("VOL_MULT_MAX", "3.0"))
+
+# Int for counts
+REGIME_WINDOW_SIZE = int(os.getenv("REGIME_WINDOW_SIZE", "50"))
 ```
 
-Note: This is internal to the `DataStore`. Users access data via `MarketFeed` methods like `get_midpoint(token)`.
+## API Integration
 
----
-
-## Feed States (Phase 3.5 - Simplified)
-
-```
-STOPPED   → Not running, call start() to begin
-STARTING  → Connecting and subscribing (handles retries internally)
-RUNNING   → Receiving data, check is_healthy for data quality
-ERROR     → Max retries exceeded, call reset() or stop()
-```
-
-**Key insight:** The market maker doesn't care about connection details. It only needs:
-- `is_healthy` → Can I trust this data?
-- `get_midpoint(token)` → What's the current price?
-
----
-
-## WebSocket Message Types
-
-| Event Type | Description | Priority |
-|------------|-------------|----------|
-| `price_change` | Best bid/ask changed | NORMAL |
-| `book` | Full order book update | HIGH |
-| `last_trade_price` | Trade executed | NORMAL |
-| `tick_size_change` | Tick size changed | HIGH |
-
----
-
-## Key Design Decisions
-
-1. **Singleton CLOB Client** - Single instance shared across modules
-2. **Simple 4-State Feed** - STOPPED/STARTING/RUNNING/ERROR (not 9 states!)
-3. **Hidden Complexity** - Retry logic, failover, queuing all internal
-4. **is_healthy Property** - Single check for market maker to trust data
-5. **REST Fallback** - Automatic, transparent to caller
-6. **Mock Feed** - Fast offline testing with data injection
-
----
-
-## MarketFeed API (Phase 3.5)
+### Gamma API (Market Discovery)
 
 ```python
-# The only interface the market maker needs:
+from src.markets import fetch_active_markets, fetch_events
+
+markets = fetch_active_markets(limit=100)
+events = fetch_events(limit=50)
+```
+
+### CLOB API (Trading)
+
+```python
+from src.client import get_client, get_auth_client
+from src.pricing import get_order_book, get_midpoint
+from src.orders import get_open_orders, get_position
+from src.trading import place_order, cancel_order
+
+# Read-only (no credentials needed)
+client = get_client()
+book = get_order_book(token_id)
+
+# Authenticated (requires credentials)
+auth_client = get_auth_client()
+orders = get_open_orders(token_id)
+```
+
+### WebSocket
+
+```python
+from src.feed import MarketFeed, FeedState
 
 feed = MarketFeed()
+feed.on_book_update = lambda token, book: print(f"Book update: {token}")
+feed.on_price_change = lambda token, mid: print(f"Price: {mid}")
+
 await feed.start(["token1", "token2"])
-
-# In market making loop:
-if feed.is_healthy:
-    mid = feed.get_midpoint("token1")
-    place_quotes(mid - spread/2, mid + spread/2)
-else:
-    cancel_all_quotes()  # Never quote on bad data!
-
+# Feed handles reconnection, failover automatically
 await feed.stop()
 ```
 
-**Properties:**
-- `state` → FeedState (STOPPED, STARTING, RUNNING, ERROR)
-- `is_healthy` → bool (safe to trade on this data?)
-- `data_source` → str ("websocket", "rest", "none")
+## Testing Patterns
 
-**Methods:**
-- `start(tokens)` → Begin receiving data
-- `stop()` → Clean shutdown
-- `reset()` → Recover from ERROR
-- `get_midpoint(token)` → Current mid price
-- `get_order_book(token)` → Full order book
-- `get_spread(token)` → Bid-ask spread
-- `get_best_bid(token)` / `get_best_ask(token)`
+### Unit Tests
 
-**Callbacks:**
-- `on_book_update` → Order book changed
-- `on_price_change` → Price changed
-- `on_trade` → Trade occurred
-- `on_state_change` → Feed state changed
+```python
+# Test with mock feed
+from src.feed.mock import MockFeed
 
----
+feed = MockFeed()
+feed.set_midpoint("token", Decimal("0.50"))
+feed.set_health(True)
 
-## Phase Documentation Files
+# Test risk manager
+from src.risk import get_risk_manager, reset_risk_manager
 
-All phase specs are stored in `/mnt/user-data/outputs/`:
+def test_something():
+    reset_risk_manager()  # Fresh instance
+    risk = get_risk_manager()
+    # ...
+```
 
-| File | Description |
-|------|-------------|
-| `phase1-environment-connectivity.md` | Phase 1 spec |
-| `phase2-market-discovery-v2.md` | Phase 2 spec with diagrams |
-| `phase3-websocket-realtime.md` | Phase 3 original spec (superseded) |
-| `architecture-review-pre-phase4.md` | Issues identified |
-| `phase3_5-websocket-hardening.md` | Phase 3.5 original (over-engineered) |
-| `phase3_5-websocket-hardening-simplified.md` | Phase 3.5 simplified |
-| `phase4-authentication.md` | Phase 4 - Authentication setup |
-| `phase5-order-management-read.md` | Phase 5 - Order read operations |
-| `PROJECT_CONTEXT.md` | This file - project overview |
+### Integration Tests
 
----
+```python
+# Test with simulator
+from src.simulator import get_simulator, reset_simulator
 
-## Test Commands
+def test_order_flow():
+    reset_simulator()
+    sim = get_simulator()
+
+    order = sim.place_order(token_id, OrderSide.BUY, Decimal("0.50"), Decimal("10"))
+    assert order is not None
+```
+
+### Running Tests
 
 ```bash
-# Activate virtual environment
-cd polymarket-bot
-source venv/bin/activate  # Linux/Mac
-# or: venv\Scripts\activate  # Windows
+# All tests
+pytest tests/ -v
 
-# Run all tests
-pytest -v
+# Specific module
+pytest tests/test_smart_mm.py -v
 
-# Run specific phase
-pytest tests/test_phase1.py -v
-pytest tests/test_phase2.py -v
-pytest tests/test_phase3.py -v
-pytest tests/test_phase3_5.py -v --timeout=180
-
-# Run with coverage
+# With coverage
 pytest --cov=src tests/
+
+# Skip slow tests
+pytest tests/ -v -m "not slow"
+```
+
+## Common Workflows
+
+### Adding a New Alpha Signal
+
+1. Create signal class in `src/alpha/`:
+   ```python
+   @dataclass
+   class MySignal:
+       value: float
+       confidence: float
+       direction: str
+
+   class MyAnalyzer:
+       def __init__(self, window_size: int):
+           self._data = deque(maxlen=window_size)
+
+       def record(self, value: float):
+           self._data.append(value)
+
+       def get_signal(self) -> MySignal:
+           # Analysis logic
+           pass
+   ```
+
+2. Add config variables to `src/config.py`
+3. Integrate into SmartMarketMaker's `_calculate_quotes()`
+4. Add tests in `tests/test_my_signal.py`
+5. Export from `src/alpha/__init__.py`
+
+### Adding a Risk Check
+
+1. Add to `RiskManager._run_checks()`:
+   ```python
+   def _check_my_condition(self) -> bool:
+       """Returns True if risk is OK."""
+       if some_condition:
+           self._log_risk_event("MY_CHECK", {"details": "..."})
+           return False
+       return True
+   ```
+
+2. Add config threshold to `src/config.py`
+3. Add tests
+
+### Modifying Quote Logic
+
+1. All quote calculation in `SmartMarketMaker._calculate_quotes()`
+2. Adjustment factors multiply the base spread:
+   ```python
+   effective_spread = (
+       SPREAD_BASE
+       * vol_multiplier
+       * regime_multiplier
+       * competitor_multiplier
+   )
+   ```
+3. Skew shifts the midpoint:
+   ```python
+   adjusted_mid = mid + inventory_skew + flow_skew
+   ```
+
+## Safety Checklist (Live Trading)
+
+Before going live:
+
+- [ ] Test in DRY_RUN with real market data
+- [ ] Verify kill switch works (`risk.kill_switch()`)
+- [ ] Confirm cancel-on-disconnect fires
+- [ ] Check stale order cleanup runs
+- [ ] Verify balance monitoring alerts work
+- [ ] Start with small `MM_SIZE` and `RISK_MAX_POSITION`
+- [ ] Monitor first 24h actively
+- [ ] Have manual cancel script ready
+
+## Troubleshooting
+
+### Feed not connecting
+- Check `WS_MARKET_URL` is correct
+- Verify network connectivity
+- Check for rate limiting (429 errors)
+
+### Orders not filling (DRY_RUN)
+- Simulator requires price to cross for fills
+- Check `sim.process_fills()` is being called
+
+### Orders rejected (LIVE)
+- Verify credentials are set
+- Check balance/allowance
+- Verify tick size (0.01 increments)
+- Check position limits
+
+### High adverse selection
+- Flow may be informed, widen spread
+- Check `ADVERSE_TOXIC_THRESHOLD` setting
+- Consider backing off market
+
+## Key Files Reference
+
+| File | Purpose |
+|------|---------|
+| `run_mm.py` | Main entry point |
+| `run_tui.py` | TUI entry point |
+| `src/config.py` | All configuration |
+| `src/strategy/market_maker.py` | Core strategy |
+| `src/strategy/runner.py` | CLI runner with market selection |
+| `src/risk/manager.py` | Central risk control |
+| `src/feed/feed.py` | Market data feed |
+| `src/simulator.py` | DRY_RUN order simulation |
+| `src/trading.py` | Order placement |
+| `src/orders.py` | Order queries |
+
+## Dependencies
+
+```
+py-clob-client    # Polymarket API client
+python-dotenv     # Environment variables
+websockets        # WebSocket connections
+pandas            # Data analysis
+pytest            # Testing
+pytest-asyncio    # Async test support
+rich              # TUI rendering
+requests          # HTTP client
+numpy             # Correlation calculations
 ```
 
 ---
 
-## Dependencies (requirements.txt)
-
-```
-py-clob-client>=0.1.0
-python-dotenv>=1.0.0
-websockets>=12.0
-pandas>=2.0.0
-pytest>=7.0.0
-pytest-asyncio>=0.21.0
-requests>=2.28.0
-```
-
----
-
-## Next Steps
-
-1. **Complete Phase 3.5** - Run all 27 tests, ensure passing
-2. **Phase 4** - Authentication & wallet setup
-3. **Phase 5** - Order management (read operations)
-4. **Phase 6** - Order placement (start with tiny $1-5 sizes!)
-
----
-
-## Important Warnings
-
-⚠️ **Phase 6+**: Always start with TINY order sizes ($1-5)
-⚠️ **Wallet**: Create SEPARATE wallet for bot, never use personal wallet
-⚠️ **Keys**: Never log private keys or API secrets
-⚠️ **Resolution**: Cancel all orders before market resolution (use GTD orders)
-⚠️ **Testing**: Use mock WebSocket for unit tests, real connection for integration
-
----
-
-## Contact Points
-
-- Polymarket CLOB Docs: https://docs.polymarket.com/
-- py-clob-client: https://github.com/Polymarket/py-clob-client
-- Polygon (MATIC): Chain ID 137
-
----
-
-*Last Updated: Phase 5 in progress*
-*Total Tests: 6 + 11 + 12 + 15 + 14 + 12 = 70 tests across all phases*
+*Last Updated: 2026-01-22*
+*Tests: 339 passing*
